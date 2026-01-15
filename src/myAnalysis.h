@@ -1,7 +1,3 @@
-/*
- * Описание того что это
- */
-
 #ifndef MY_ANALYSIS
 #define MY_ANALYSIS
 
@@ -10,6 +6,8 @@
 #include "k4FWCore/DataHandle.h"
 #include "GaudiKernel/Algorithm.h"
 #include <random>
+#include <vector>
+#include <string>
 #include "GaudiKernel/NTuple.h"
 #include "TFile.h"
 #include "TTree.h"
@@ -22,6 +20,9 @@
 #include "edm4hep/RecDqdx.h"
 #include "edm4hep/RecDqdxCollection.h"
 #include "edm4hep/ParticleIDCollection.h"
+
+#include "fastjet/ClusterSequence.hh"
+#include "fastjet/PseudoJet.hh"
 
 /*
  * Вот эта штука это какое-то расширение edm4hep от команды CEPC
@@ -46,20 +47,127 @@
  */
 #define NUMBER_OF_PARTICLE_HYPOTHESES     5
 
-/*
- * Попробую тут добавить тайпдефы чтобы 
- * просто
- * было легче читать C++ код
- * TODO выглядит сомнительно я бы удалил это
- * (потому что тут тайпдефы вообще на хендлеры, а не на коллекции)
+/* 
+ * Создаем вспомогательный класс для
+ * хранения данных одного события 
  */
-typedef DataHandle<edm4hep::ReconstructedParticleCollection> myRecPartColl;
-typedef DataHandle<edm4hep::MCParticleCollection> myMCPartColl;
-typedef DataHandle<edm4hep::RecTofCollection> myRecTofColl;
-typedef DataHandle<edm4hep::RecDqdxCollection> myRecDqdxColl;
+class EventData 
+{
+public:
+  /* Конструктор, инициализирует все переменные */
+  EventData() { reset(); };
 
-/* TODO это видимо просто значит, что у нас режим на чтение */
-typedef Gaudi::DataHandle::Reader myGaudiReader;
+  /* Функция для сборса всех переменных */
+  void reset()
+  {
+    relativeIsolationCharged.clear();
+    relativeIsolationNeutral.clear();
+
+    pfoChi2TOF.clear();
+    pfoChi2TPC.clear();
+
+    pfoE.clear();
+    pfoPx.clear();
+    pfoPy.clear();
+    pfoPz.clear();
+
+    pfoTotalE = 0;
+    pfoTotalPx = 0;
+    pfoTotalPy = 0;
+    pfoTotalPz = 0;
+
+    reconstructedJetConstituentsPfoIdx.clear();
+    reconstructedJetPx.clear();
+    reconstructedJetPy.clear();
+    reconstructedJetPz.clear();
+    reconstructedJetE.clear();
+    reconstructedJetThrust.clear();
+
+    mcParticleE.clear();
+    mcParticlePx.clear();
+    mcParticlePy.clear();
+    mcParticlePz.clear();
+    mcParticlePDGid.clear();
+    mcParticleCharge.clear();
+    mcParticleGeneratorStatus.clear();
+    mcParticleParentsSize.clear();
+    mcJetPx.clear();
+    mcJetPy.clear();
+    mcJetPz.clear();
+    mcJetE.clear();
+    mcJetThrust.clear();
+
+    mcTotalE = 0;
+    mcTotalNeutrinosE = 0;
+    mcTotalPx = 0;
+    mcTotalPy = 0;
+    mcTotalPz = 0;
+
+    minDeltaR.clear();
+    matchedMCIdx.clear();
+  }
+
+  /* Номер обрабатываемого события */
+  int     eventNumber;
+
+  /* 
+   * Величина изоляции для каждого pfo объекта из этого события.
+   *
+   * Значения в первом векторе это изоляция (относительная) 
+   * относительно заряженных соседей. Значения во втором векторе 
+   * это изоляция (относительная) относительно нейтральных соседей.
+   */
+  std::vector<double> relativeIsolationCharged;
+  std::vector<double> relativeIsolationNeutral;
+
+  /* Значения хи квадратов PID, которые вычесленны для каждого PFO */
+  std::vector<std::vector<double>> pfoChi2TOF;
+  std::vector<std::vector<double>> pfoChi2TPC;
+
+  /* Переменные для PFO коллекции  */
+  std::vector<double> pfoE;
+  std::vector<double> pfoPx;
+  std::vector<double> pfoPy;
+  std::vector<double> pfoPz;
+
+  double pfoTotalE;
+  double pfoTotalPx;
+  double pfoTotalPy;
+  double pfoTotalPz;
+
+  /* Составляющие джетов, которые нашел джет кластеринг */
+  std::vector<std::vector<int>> reconstructedJetConstituentsPfoIdx;
+  std::vector<double> reconstructedJetPx;
+  std::vector<double> reconstructedJetPy;
+  std::vector<double> reconstructedJetPz;
+  std::vector<double> reconstructedJetE;
+  std::vector<double> reconstructedJetThrust;
+
+  /* Переменные для MC коллекции */
+  std::vector<double> mcParticleE;
+  std::vector<double> mcParticlePx;
+  std::vector<double> mcParticlePy;
+  std::vector<double> mcParticlePz;
+  std::vector<int> mcParticlePDGid;
+  std::vector<int> mcParticleCharge;
+  std::vector<int> mcParticleGeneratorStatus;
+  std::vector<int> mcParticleParentsSize;
+  std::vector<double> mcJetPx;
+  std::vector<double> mcJetPy;
+  std::vector<double> mcJetPz;
+  std::vector<double> mcJetE;
+  std::vector<double> mcJetThrust;
+
+  double mcTotalE;
+  double mcTotalNeutrinosE;
+  double mcTotalPx;
+  double mcTotalPy;
+  double mcTotalPz;
+
+  /* Соотвествие MC и PFO */
+  std::vector<double> minDeltaR;
+  std::vector<int> matchedMCIdx;
+};
 
 /* Gaudi::Property - настройки конфигурации (он как раз берет настройки из Python) */
 
@@ -109,31 +217,20 @@ public:
   StatusCode finalize() override;     /* Выполняется 1 раз в конце, для отчистки */
 
 private:
-
-  /* TODO надо понять какие мне нужны 
-   *
+  /*
    * NOTE: m_PFOColHdl и тд это просто имена переменных в моем коде
    * NOTE: this это указатель на текущий объект (чтобы Gaudi знал кому принадлежит handle)
-   *
-   * Я пока что возьму те же самые коллекции
-   *
-   * Тут надо сразу написать какие есть методы у этих хендлеров:
-   * .get()
-   *
-   *
-   *
-   *
    */
-  myRecPartColl pfoCollHandler{"CyberPFOPID", myGaudiReader, this};
-  myMCPartColl mcCollHandler{"MCParticle", myGaudiReader, this};
+  DataHandle<edm4hep::ReconstructedParticleCollection> pfoCollHandler{"CyberPFOPID", Gaudi::DataHandle::Reader, this};
+  DataHandle<edm4hep::MCParticleCollection> mcCollHandler{"MCParticle", Gaudi::DataHandle::Reader, this};
 
   /* 
    * Это используется для идентефикации частиц: 
    * TOF - time if flight - изменение времени пролета частицы для определения массы
    * DQDX - dQ / dx - измерение потерь энергии в детекторе для идентефикации частиц
    */
-  myRecTofColl tofCollHandler{"RecTofCollection", myGaudiReader, this};
-  myRecDqdxColl dqdxCollHandler{"DndxTracks", myGaudiReader, this};
+  DataHandle<edm4hep::RecTofCollection> tofCollHandler{"RecTofCollection", Gaudi::DataHandle::Reader, this};
+  DataHandle<edm4hep::RecDqdxCollection> dqdxCollHandler{"DndxTracks", Gaudi::DataHandle::Reader, this};
 
   /* 
    * Gaudi::Property это настройки из конфигурации (видимо из питоновского скрипта) 
@@ -153,261 +250,41 @@ private:
   Gaudi::Property<int> myNumberJets{this, "numberJets", 2};
   Gaudi::Property<double> myJetsR{this, "jetsR", 0.6};
   Gaudi::Property<std::string> 
-    myOutputRootFile{this, "outputRootFile", "myAnalysisOutput.root"}
+    myOutputFileName{this, "outputRootFile", "myAnalysisOutput.root"};
 
-  /* 
-   * TODO
-   * В MissingET есть еще некоторые функции ниже, я пока что их добавлять не буду 
-   * потому что не оч пока понял зачем именно их в этом классе писать, почему не написать
-   * их вне этого класса внутри myAnalysis.cpp 
-   */
+  /* Все переменные обрабатываемого события хранятся тут */
+  EventData myEventData;
 
-  /* Для извлечения коллекции (шаблонная функция должна быть реализована тут) */
-  template<typename CollectionType>
-  bool getCollection(const DataHandle<CollectionType>& handle, 
-                     const CollectionType **collection, 
-                     const int eventNumber);
-  {
-    try 
-    {
-      *collection = handle.get();
-    }
-    catch (const GaudiException& e)
-    {
-      info() << "Collection " << handle.fullKey() << 
-            " is unavailable in event " << eventNumber << endmsg;
-      return false;
-    }
+  /* Выходной файл и выходное дерево */
+  TFile   *myOutputFile;
+  TTree   *myOutputTree;
 
-    if ((*collection)->empty())
-    {
-      info() << "Collection " << handle.fullKey() << 
-            " is empty in event " << eventNumber << endmsg;
-      return false;
-    }
+  /* Обязательные коллекции */
+  const edm4hep::ReconstructedParticleCollection *myPfoCollPtr;
+  const edm4hep::MCParticleCollection *myMcPartCollPtr;
 
-    return true;
-  }
+  /* Необязательные коллекции */
+  const edm4hep::RecTofCollection     *myTofCollPtr;
+  const edm4hep::RecDqdxCollection    *myDqdxCollPtr;
 
   /* Функция для проверки инвалидности элемента PFO */
-  bool isInvalidPFO(const edm4hep::ReconstructedParticle& pfo) const 
-  {
-    return (std::isnan(pfo.getMomentum()[0]) || 
-            std::isnan(pfo.getMomentum()[1]) || 
-            std::isnan(pfo.getMomentum()[2]) || 
-            pfo.getEnergy() == 0);
-  }
+  bool isInvalidPFO(const edm4hep::ReconstructedParticle& pfo) const;
 
   /* 
    * Функция для идентефикации частиц по данным из коллекции dqdx
    */
-  void doDqdxParticleIdentification(const edm4hep::RecDqdxCollection *dqdxColl, 
-                                    edm4hep::MutableReconstructedParticle &pfoElement)
-  {
-    /* 
-     * Тут будут храниться значения chi^2 для каждой из гипотез:
-     * (изнанчально заполнены значениями -1)
-     * 0 - электрон
-     * 1 - мюон
-     * 2 - пион
-     * 3 - каон
-     * 4 - протон
-     *
-     * Я не уверен, что я правильно определил номера гипотез, но
-     * тут можно найти некий конфиг файл в котором есть эти номера:
-     *
-     * https://code.ihep.ac.cn/cepc/externals/EDM4cepc/-/blob/main/
-     * edm4cepc.yaml?ref_type=heads
-     *
-     * Помимо номеров гипотез в нем есть (как я понимаю) вообще все
-     * члены TOF коллекции (которая добавлена именно разработчиками CEPCSW).
-     */
-    std::vector<double> chi2Tpc(NUMBER_OF_PARTICLE_HYPOTHESES, -1);
-
-    /* 
-     * Запускаем цикл по всем трекам для конкретного PFO.
-     *
-     * По какой-то причине в PFO может быть несколько
-     * треков, это может быть вызвано либо ошибкой реконструкции,
-     * либо же еще какими-то эффектами реконструкции (типа вторичных частиц наверное).
-     */
-    // TODO а точно ли у PFO может быть больше одного трека?
-    // я просто не понимаю как мы возврашаем результаты этой функции тогда
-    for (auto trk : pfoElement.getTracks()) /* Вроде возвращает 1 трек */
-    {
-      /* 
-       * Цикл по всем элементам коллекции dqdx.
-       *
-       * TPC измеряет dE/dx (потери энергии на единицу пути), разные
-       * частицы имеют разные характерные потери при заданном импульсе.
-       * Для каждой гипотезы вычисляется хи-квадрат исходя из ожидаемых потерь.
-       * (насколько хорошо полученные потери согласуются с ожидаемыми).
-       *
-       * Методы этой коллекции и в целом edm4hep можно поискать в nauch_maga/EDM4hep
-       * (я скачал ее с сервера CEPC, надеюсь это нужная версия)
-       *
-       * Каждый элемент коллекции dqdx содержит связь с конкретным треком.
-       */
-      for (auto dqdxElement : *dqdxColl) 
-      {
-        if (dqdxElement.getTrack() == trk) /* Тоже возвращает один трек, но 
-                                            * тут другое название метода почему-то */
-          for (int i = 0; i < NUMBER_OF_PARTICLE_HYPOTHESES; i++)
-            chi2Tpc[i] = dqdxElement.getHypotheses(i).chi2;
-        
-        break; /* Завершаем цикл если нашли нужный трек */
-      }
-    }
-
-    /* 
-     * Запысываем резуьтат для последнего трека PFO 
-     * (FIXME нужно чтобы не только для последнего было) 
-     */
-    pfoChi2TPC.push_back(chi2Tpc);
-  }
-
+  void doDqdxParticleIdentification(const edm4hep::ReconstructedParticle& pfoElement);
 
   /* 
    * Функция для идентефикации частиц по коллекциям dqdx и tof 
    */
-  void doTOFParticleIdentification(const edm4hep::RecTofCollection *tofColl, 
-                                   edm4hep::MutableReconstructedParticle &pfoElement)
-  {
-    /* 
-     * Тут будут храниться значения chi^2 для каждой из гипотез:
-     * (изнанчально заполнены значениями -1)
-     * 0 - электрон
-     * 1 - мюон
-     * 2 - пион
-     * 3 - каон
-     * 4 - протон
-     *
-     * Я не уверен, что я правильно определил номера гипотез, но
-     * тут можно найти некий конфиг файл в котором есть эти номера:
-     *
-     * https://code.ihep.ac.cn/cepc/externals/EDM4cepc/-/blob/main/
-     * edm4cepc.yaml?ref_type=heads
-     *
-     * Помимо номеров гипотез в нем есть (как я понимаю) вообще все
-     * члены TOF коллекции (которая добавлена именно разработчиками CEPCSW).
-     */
-    std::vector<double> chi2Tof(NUMBER_OF_PARTICLE_HYPOTHESES, -1);
-
-    /* 
-     * Запускаем цикл по всем трекам для конкретного PFO.
-     *
-     * По какой-то причине в PFO может быть несколько
-     * треков, это может быть вызвано либо ошибкой реконструкции,
-     * либо же еще какими-то эффектами реконструкции (типа вторичных частиц наверное).
-     */
-    // TODO а точно ли у PFO может быть больше одного трека?
-    // я просто не понимаю как мы возврашаем результаты этой функции тогда
-    for (auto trk : pfoElement.getTracks()) /* Вроде возвращает 1 трек */
-    {
-      /* 
-       * Цикл по всем элементам коллекции tof (reconstructed time of flight). 
-       *
-       * Делает примерно тоже самое, что и цикл выше, но на основе измерений
-       * времени пролета частиц.
-       *
-       * Хи-квадрат тут считаем вручную по формуле:
-       * chi2 = [(t_ожидаемое - t_измеренное) / погрешность]^2
-       */
-      for (auto tofElement : *tofColl)
-      {
-        /* TODO тут странная формула для хи квадрат была, я поменял знаменатель */
-        if (tofElement.getTrack() == trk)
-          chi2Tof[i] = std::pow((tofElement.getTime() - tofElement.getTimeExp()[i]) / 
-                                tofElement.getTimeExp()[i], 2);
-
-        break; /* Завершаем цикл если нашли нужный трек */
-      }
-    }
-
-    /* 
-     * Запысываем резуьтат для последнего трека PFO 
-     * (FIXME нужно чтобы не только для последнего было) 
-     */
-    pfoChi2TOF.push_back(chi2Tof);
-  }
+  void doTOFParticleIdentification(const edm4hep::ReconstructedParticle& pfoElement);
 
   /* 
    * Функция для вычисления изоляции PFO.
    */
-  void calculateIsolationForPFO(edm4hep::ReconstructedParticleCollection *myPfoCollPtr,
-                                edm4hep::MutableReconstructedParticle &pfoCollElement, 
-                                EventData &eventData,
-                                double deltaR)
-  {
-    /* Создаем 4-вектор для переданного PFO объекта */
-    TLorentzVector pfo4Momentum;
-    TLorentzVector pfo4MomentumNeighbour;
-
-    /* Суммарный импульс */
-    double totalMomentumCharge = 0; 
-    double totalMomentumNeutral = 0;
-
-    /* Заполняем 4 вектор для обрабатываемого pfo объекта */
-    pfo4Momentum.SetPxPyPzE(pfoCollElement.getMomentum()[0], 
-                            pfoCollElement.getMomentum()[1], 
-                            pfoCollElement.getMomentum()[2], 
-                            pfoCollElement.getEnergy());
-
-    /* 
-     * Для частиц у которых поперечный импульс
-     * меньше 2 ГэВ мы считаем изоляцию равной -1.
-     * (по сути просто не считаем)
-     */
-    if (pfo4Momentum.Pt() < MIN_PT_MOMENTUM_FOR_ISOLATION)
-    {
-      eventData.relativeIsolationCharged.push_back(-1);
-      eventData.relativeIsolationNeutral.push_back(-1);
-      return;
-    }
-
-    /* Все проверки пройдены, тогда вычисляем изоляцию */
-
-    /* 
-     * Запускаем цикл по всем pfo элеметам 
-     * коллекции чтобы посчитать изоляцию
-     */
-    for (const auto& pfoCollElementNeighbour : *myPfoCollPtr)
-    {
-      /* 
-       * Пропускаем невалидные + пропускаем 
-       * совпадение с нашим обрабатываемым.
-       */
-      if (isInvalidPFO(pfoCollElementNeighbour) || 
-          &pfoCollElementNeighbour == &pfoCollElement)
-        continue;
-
-      /* Также заполняем 4 вектор для текущего соседа */
-      pfo4MomentumNeighbour.SetPxPyPzE(pfoCollElementNeighbour.getMomentum()[0], 
-                                       pfoCollElementNeighbour.getMomentum()[1], 
-                                       pfoCollElementNeighbour.getMomentum()[2], 
-                                       pfoCollElementNeighbour.getEnergy());    
-
-      /* 
-       * Если эта соседняя частица входит 
-       * в интересующий нас конус 
-       */
-      if (pfo4Momentum.DeltaR(pfo4MomentumNeighbour) < deltaR)
-      {
-        /* Если заряд соседа */
-        if (pfoCollElementNeighbour.getCharge() == 0)
-          totalMomentumCharge += pfoCollElementNeighbour.P();
-        else
-          totalMomentumNeutral += pfoCollElementNeighbour.P();
-      }
-    }
-
-    /* 
-     * Теперь нормируем изоляцию на импульс самого pfo 
-     * и запысываем результат в eventData 
-     */
-    eventData.relativeIsolationCharged.push_back(totalMomentumCharge / pfo4Momentum.P());
-    eventData.relativeIsolationNeutral.push_back(totalMomentumNeutral / pfo4Momentum.P());
-  }
+  void calculateIsolationForPFO(const edm4hep::ReconstructedParticle& pfoElement, 
+                                double deltaR);
 
   /* 
    * Функция для обработки результатов джет кластеринга.
@@ -415,111 +292,23 @@ private:
    * Она предназначена как для генераторных джетов, так и для реконструированных.
    */
   void processJetClusteringResults(const std::vector<fastjet::PseudoJet>& jets, 
-                                   bool isReconstructed,
-                                   EventData& eventData)
-  {
-    /* Запускаем цикл по полученным джетам чтобы извлечь их параметры */
-    for (int i = 0; i < eventData.jets.size(); i++) 
-    {
-      /* 
-       * TODO сохранение всех переменных для джета типа энергии и тд,
-       * пока что я не буду это сохранять так как пока не принял
-       * решение какие перменные мы будем сохранят в EventData
-       */
-      
-    }
-
-  }
+                                   bool isReconstructed);
 
   /* 
-   * TODO нужно добавить сюда все, что я хочу считать
-   * Также нам необходимо поместить сюда все нужные нам переменные, 
-   * которые должны быть доступны между вызовами функций
+   * Функция для сопоставления реконструкции с MC.
+   * inputParticles - должен быть созан на исходных PFO.
    */
+  void doGenMatch(const std::vector<fastjet::PseudoJet>& inputParticles,
+                  const std::vector<fastjet::PseudoJet>& inputParticlesMC);
 
-  /* Номер обрабатываемого события */
-  int     eventNumber;
+  /* Для сброса переменных класса */
+  void reset() { myEventData.reset(); }
 
-  /* Суммарное количество обработанных частиц */
-  int numberParticles;
-
-  /* Все переменные обрабатываемого события хранятся тут */
-  EventData myEventData;
-
-  /* Выходной файл и выходное дерево */
-  TFile   *outputFile;
-  TTree   *outputTree;
-
-  /* 
-   * Значения хи квадратов PID, которые вычесленны для каждого PFO.
-   * TODO В текущей реализации мы берем только последний трек для PFO, 
-   * это нужно исправить
-   *
-   * TODO это мб надо перенести в EventData вместе с самими коллекциями
-   */
-  std::vector<std::vector<double>> pfoChi2TPC, pfoChi2TOF;
+  /* Для получения коллекций */
+  bool getPfoCollection();
+  bool getMcCollection();
+  bool getTofCollection();
+  bool getDqdxCollection();
 };
-
-/* 
- * Создаем вспомогательный класс для
- * хранения данных одного события 
- */
-class EventData 
-{
-public:
-  /* Конструктор, инициализирует все переменные */
-  EventData() { reset(); };
-
-  /* Функция для сборса всех переменных */
-  /* TODO  сюда надо добавить все используемые перменные */
-  void reset()
-  {
-
-  }
-
-  /* TODO все перменные как публичные члены класса */
-
-  /* 
-   * Величина изоляции для каждого pfo объекта из этого события.
-   *
-   * Значения в первом векторе это изоляция (относительная) 
-   * относительно заряженных соседей. Значения во втором векторе 
-   * это изоляция (относительная) относительно нейтральных соседей.
-   */
-  std::vector<double> relativeIsolationCharged;
-  std::vector<double> relativeIsolationNeutral;
-
-  /* Суммарный 4 импульс всех pfo в событии */
-  TLorentzVector totalPFO4Momentum;
-
-  /* Джеты, которые нашел алгоритм джет кластеринга */
-  vector<fastjet::PseudoJet> jets;
-
-};
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 #endif                  /* MY_ANALYSIS */
