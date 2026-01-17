@@ -16,7 +16,7 @@ cepcswdatatop ="/cvmfs/cepcsw.ihep.ac.cn/prototype/releases/data/latest"
 ########## Podio Input ###################
 from Configurables import PodioInput
 inp = PodioInput("InputReader")
-inp.collections = [ "CyberPFOPID", "MCParticle" , "RecTofCollection", "DndxTracks"]
+inp.collections = [ "CyberPFOPID" ]
 ##########################################
 
 
@@ -24,8 +24,9 @@ from Configurables import myAnalysis
 myAnalysis = myAnalysis("myAnalysis")
 myAnalysis.jetClusteringAlgoName = "ee_kt_algorithm"
 myAnalysis.numberJets = 2
-myAnalysis.jetsR = 0.6
+myAnalysis.isolationDeltaR = 0.4
 myAnalysis.outputRootFile = "test_output.root"
+myAnalysis.centerOfMassEnergy = 240.0
 
 ########################################
 from Configurables import ApplicationMgr
