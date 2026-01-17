@@ -26,7 +26,7 @@ CEPCSW_ROOT="/cefs/higgs/kositsin/CEPCSW-tutorial"
 PROCESS_NAME="E240_qqHinvi"
 
 # Путь к директории с reconstructed файлами
-RECO_DIR="/cefs/higgs/liugeliang/CEPC/202501/Production/Hinvi/E240_qqHinvi/Reco"
+RECO_DIR="/cefs/higgs/liugeliang/CEPC/202501/Production/Hinvi/E240_qqHinvi/Combined"
 
 # Шаблон имени входных файлов (ls-шаблон)
 RECO_FILE_PATTERN="rec_${PROCESS_NAME}_*.root"
@@ -48,6 +48,12 @@ TIMESTAMP=$(date +%m%d%H%M)
 # Директория для временных job-скриптов
 JOB_DIR="${SCRIPT_DIR}/${PROCESS_NAME}/job"
 
+# Директория для результатов (выходных файлов)
+RES_DIR="${SCRIPT_DIR}/${PROCESS_NAME}/results"
+
+# Директория для логов
+LOG_DIR="${SCRIPT_DIR}/${PROCESS_NAME}/logs"
+
 # ──────────────────────────────────────────────────────────────────────────────
 #          Подготовка окружения
 # ──────────────────────────────────────────────────────────────────────────────
@@ -64,7 +70,7 @@ mkdir -p "$SCRIPT_DIR" "$JOB_DIR" || {
 # ──────────────────────────────────────────────────────────────────────────────
 #          Поиск входных файлов
 # ──────────────────────────────────────────────────────────────────────────────
-
+hep_rm
 echo "Поиск reconstructed файлов..."
 echo "Путь: ${RECO_DIR}/${RECO_FILE_PATTERN}"
 
@@ -89,7 +95,7 @@ for input_file in "${RECO_FILES[@]}"; do
     idx=$(printf "%05d" "$job_counter")
 
     # Формируем имя выходного файла анализа
-    output_file="${RECO_DIR}/ana_${PROCESS_NAME}_${idx}.root"
+    output_file="${RES_DIR}/ana_${PROCESS_NAME}_${idx}.root"
 
     # Генерируем конфигурационный python-скрипт для этого файла
     sed -e "s|{rec_path}|${input_file}|g" \
@@ -125,8 +131,8 @@ EOF
         hep_sub "$sub_script" \
             -g "$HEP_GROUP" \
             -mem "$MEMORY_MB" \
-            -o "${JOB_DIR}/ana_${TIMESTAMP}_${PROCESS_NAME}_${idx}.out" \
-            -e "${JOB_DIR}/ana_${TIMESTAMP}_${PROCESS_NAME}_${idx}.err"
+            -o "${LOG_DIR}/ana_${TIMESTAMP}_${PROCESS_NAME}_${idx}.out" \
+            -e "${LOG_DIR}/ana_${TIMESTAMP}_${PROCESS_NAME}_${idx}.err"
 
         printf "Задание подано: %5d   %s\n" "$job_counter" "$(basename "$input_file")"
     else
@@ -150,5 +156,5 @@ else
     echo "Режим без подачи заданий (только генерация конфигов)"
 fi
 echo "Готовые файлы анализа появятся здесь:"
-echo "  ${RECO_DIR}/ana_${PROCESS_NAME}_*.root"
+echo "  ${RES_DIR}/ana_${PROCESS_NAME}_*.root"
 echo "──────────────────────────────────────────────────────────────"
