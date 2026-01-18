@@ -241,54 +241,49 @@ StatusCode myAnalysis::execute()
     // ── 4. Расчёт инвариантных масс и масс отдачи ───────────────────────
     myEventData.invariantMassAllPFO = totalPFO4Momentum.M();
 
-    // Проверяем, что алгоритм кластеризации нашёл хотя бы два джета
-    // (в большинстве случаев мы ожидаем ровно два джета)
-    if (jets.size() >= 2) // FIXME это точно нужно?
-    {
-        // Создаём четырёхимпульсы двух ведущих джетов
-        // (jets отсортированы по убыванию pT, поэтому jets[0] — самый энергичный)
-        TLorentzVector j1(jets[0].px(), jets[0].py(), jets[0].pz(), jets[0].E());
-        TLorentzVector j2(jets[1].px(), jets[1].py(), jets[1].pz(), jets[1].E());
+    // Создаём четырёхимпульсы двух ведущих джетов
+    // (jets отсортированы по убыванию pT, поэтому jets[0] — самый энергичный)
+    TLorentzVector j1(jets[0].px(), jets[0].py(), jets[0].pz(), jets[0].E());
+    TLorentzVector j2(jets[1].px(), jets[1].py(), jets[1].pz(), jets[1].E());
 
-        // Суммируем четырёхимпульсы двух джетов → получаем четырёхимпульс диджет-системы
-        TLorentzVector dijet = j1 + j2;
+    // Суммируем четырёхимпульсы двух джетов → получаем четырёхимпульс диджет-системы
+    TLorentzVector dijet = j1 + j2;
 
-        // Инвариантная масса диджет-системы (масса двух джетов вместе)
-        // Это одна из ключевых наблюдаемых величин в анализе
-        myEventData.invariantMassDijets = dijet.M();
+    // Инвариантная масса диджет-системы (масса двух джетов вместе)
+    // Это одна из ключевых наблюдаемых величин в анализе
+    myEventData.invariantMassDijets = dijet.M();
 
-        // Энергия в системе центра масс (обычно 240 ГэВ для CEPC при Z-фабрике)
-        double sqrts = myCenterOfMassEnergy;
+    // Энергия в системе центра масс (обычно 240 ГэВ для CEPC при Z-фабрике)
+    double sqrts = myCenterOfMassEnergy;
 
-        // ── Расчёт массы отдачи по всем PFO (реконструированная полная система) ──
-        
-        // Энергия отдачи = полная энергия события минус энергия всех PFO
-        double recoilE_all = sqrts - myEventData.pfoTotalE;
+    // ── Расчёт массы отдачи по всем PFO (реконструированная полная система) ──
+    
+    // Энергия отдачи = полная энергия события минус энергия всех PFO
+    double recoilE_all = sqrts - myEventData.pfoTotalE;
 
-        // Квадрат полного импульса системы всех PFO
-        double recoilP2_all = std::pow(myEventData.pfoTotalPx, 2) +
-                              std::pow(myEventData.pfoTotalPy, 2) +
-                              std::pow(myEventData.pfoTotalPz, 2);
+    // Квадрат полного импульса системы всех PFO
+    double recoilP2_all = std::pow(myEventData.pfoTotalPx, 2) +
+                          std::pow(myEventData.pfoTotalPy, 2) +
+                          std::pow(myEventData.pfoTotalPz, 2);
 
-        // Масса отдачи = √(E_recoil² - p_recoil²)
-        // В идеале должна быть близка к массе Z-бозона (~91 ГэВ) в процессе e⁺e⁻ → ZH
-        myEventData.recoilMassAllPFO = std::sqrt(recoilE_all * recoilE_all - recoilP2_all);
+    // Масса отдачи = √(E_recoil² - p_recoil²)
+    // В идеале должна быть близка к массе Z-бозона (~91 ГэВ) в процессе e⁺e⁻ → ZH
+    myEventData.recoilMassAllPFO = std::sqrt(recoilE_all * recoilE_all - recoilP2_all);
 
-        // ── Расчёт массы отдачи по двум джетам (диджет-система) ──
+    // ── Расчёт массы отдачи по двум джетам (диджет-система) ──
 
-        // Энергия отдачи = полная энергия минус энергия диджет-системы
-        double recoilE_dijet = sqrts - dijet.E();
+    // Энергия отдачи = полная энергия минус энергия диджет-системы
+    double recoilE_dijet = sqrts - dijet.E();
 
-        // Квадрат импульса диджет-системы
-        // (альтернативная запись: можно было использовать dijet.P() * dijet.P())
-        double recoilP2_dijet = std::pow(dijet.Px(), 2) +
-                                std::pow(dijet.Py(), 2) +
-                                std::pow(dijet.Pz(), 2);
+    // Квадрат импульса диджет-системы
+    // (альтернативная запись: можно было использовать dijet.P() * dijet.P())
+    double recoilP2_dijet = std::pow(dijet.Px(), 2) +
+                            std::pow(dijet.Py(), 2) +
+                            std::pow(dijet.Pz(), 2);
 
-        // Масса отдачи, посчитанная по диджет-системе
-        // В хорошо реконструированном событии должна быть близка к recoilMassAllPFO
-        myEventData.recoilMassDijets = std::sqrt(recoilE_dijet * recoilE_dijet - recoilP2_dijet);
-    }
+    // Масса отдачи, посчитанная по диджет-системе
+    // В хорошо реконструированном событии должна быть близка к recoilMassAllPFO
+    myEventData.recoilMassDijets = std::sqrt(recoilE_dijet * recoilE_dijet - recoilP2_dijet);
 
     // Заполняем дерево и увеличиваем счётчик событий
     myEventData.eventNumber++;
