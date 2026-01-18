@@ -92,6 +92,11 @@ StatusCode myAnalysis::initialize()
     // Изоляция
     myOutputTree->Branch("relativeIsolation", &myEventData.relativeIsolation);
 
+    // DEBUG Отладка изоляции (находим ли мы вообще частицы)
+    myOutputTree->Branch("isLepton", &myEventData.isLepton);
+    myOutputTree->Branch("isPhoton", &myEventData.isPhoton);
+    myOutputTree->Branch("isChargedHadron", &myEventData.isChargedHadron);
+
     // Характеристики реконструированных джетов
     myOutputTree->Branch("reconstructedJetConstituentsPfoIdx", &myEventData.reconstructedJetConstituentsPfoIdx);
     myOutputTree->Branch("reconstructedJetPx", &myEventData.reconstructedJetPx);
@@ -196,12 +201,17 @@ StatusCode myAnalysis::execute()
         bool isChargedHadron = (charge != 0 && !isLepton);                      // заряженные адроны:
                                                                                 // π±, K±, p/p̅ и т.д.
                                                                                 // (исключаем лептоны)
+        // DEBUG
+        myEventData.isLepton.push_back(isLepton ? 1 : 0);
+        myEventData.isLepton.push_back(isPhoton ? 1 : 0);
+        myEventData.isLepton.push_back(isChargedHadron ? 1 : 0);
 
         // Главное условие отбора события:
         // Если частица изолирована (мало энергии/импульса в конусе вокруг неё)
         // И при этом она относится к одной из «нежелательных» категорий,
         // то помечаем событие как подлежащее отбрасыванию
-        if (relIso < ISOLATION_THRESHOLD && (isLepton || isPhoton || isChargedHadron))
+        if (relIso > 0 && relIso < ISOLATION_THRESHOLD && 
+            (isLepton || isPhoton || isChargedHadron))
         {
             // Если событие содержит хотя бы одну изолированную
             // лептон/фотон/заряженный адрон → пропускаем обработку дальше
@@ -233,7 +243,7 @@ StatusCode myAnalysis::execute()
 
     // Проверяем, что алгоритм кластеризации нашёл хотя бы два джета
     // (в большинстве случаев мы ожидаем ровно два джета)
-    if (jets.size() >= 2)
+    if (jets.size() >= 2) // FIXME это точно нужно?
     {
         // Создаём четырёхимпульсы двух ведущих джетов
         // (jets отсортированы по убыванию pT, поэтому jets[0] — самый энергичный)

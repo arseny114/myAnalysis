@@ -46,6 +46,11 @@ public:
         reconstructedJetE.clear();
         reconstructedJetThrust.clear();
 
+        // DEBUG
+        isLepton.clear();
+        isPhoton.clear();
+        isChargedHadron.clear();
+
         pfoTotalE = pfoTotalPx = pfoTotalPy = pfoTotalPz = 0.0;
         invariantMassAllPFO = invariantMassDijets = 0.0;
         recoilMassAllPFO = recoilMassDijets = 0.0;
@@ -59,6 +64,11 @@ public:
 
     // Изоляция
     std::vector<double> relativeIsolation;
+
+    // DEBUG Отладка изоляции
+    std::vector<int> isLepton;
+    std::vector<int> isPhoton;
+    std::vector<int> isChargedHadron;
 
     // Джеты
     std::vector<std::vector<int>>   reconstructedJetConstituentsPfoIdx;
