@@ -97,6 +97,13 @@ StatusCode myAnalysis::initialize()
     myOutputTree->Branch("isPhoton", &myEventData.isPhoton);
     myOutputTree->Branch("isChargedHadron", &myEventData.isChargedHadron);
 
+    // DEBUG
+    myOutputTree->Branch("particleType", &myEventData.particleType);
+    // myOutputTree->Branch("particlePdgId", &myEventData.particlePdgId); NOTE этого не существует в выходных файлах
+
+    // DEBUG
+    myOutputTree->Branch("jetSize", &myEventData.jetSize);
+
     // Характеристики реконструированных джетов
     myOutputTree->Branch("reconstructedJetConstituentsPfoIdx", &myEventData.reconstructedJetConstituentsPfoIdx);
     myOutputTree->Branch("reconstructedJetPx", &myEventData.reconstructedJetPx);
@@ -196,15 +203,20 @@ StatusCode myAnalysis::execute()
         double relIso = myEventData.relativeIsolation[i];   // ранее посчитанная изоляция
 
         // Классифицируем частицу по типу
-        bool isLepton        = (absPdg == 11 || absPdg == 13 || absPdg == 15);  // e⁻/e⁺, μ⁻/μ⁺, τ⁻/τ⁺
-        bool isPhoton        = (pdgType == 22);                                 // фотон
-        bool isChargedHadron = (charge != 0 && !isLepton);                      // заряженные адроны:
-                                                                                // π±, K±, p/p̅ и т.д.
-                                                                                // (исключаем лептоны)
+        bool isLepton        = (absPdg == 11 || absPdg == 13);                  // e⁻/e⁺, μ⁻/μ⁺
+        bool isChargedHadron = (absPdg == 2212 || absPdg == 321 || absPdg == 211); // заряженные адроны
+        bool isPhoton        = (pdgType == 22);                                 // фотон, их так нельзя найти (они все с типом 0)
+
         // DEBUG
         myEventData.isLepton.push_back(isLepton ? 1 : 0);
-        myEventData.isLepton.push_back(isPhoton ? 1 : 0);
-        myEventData.isLepton.push_back(isChargedHadron ? 1 : 0);
+        myEventData.isPhoton.push_back(isPhoton ? 1 : 0);
+        myEventData.isChargedHadron.push_back(isChargedHadron ? 1 : 0);
+
+        // DEBUG
+        myEventData.particleType.push_back(pdgType);
+
+        // Вот это вызывает краш (видимо в PID нет просто этих полей)
+        // myEventData.particlePdgId.push_back((*myPfoCollPtr)[i].getParticleIDUsed().getPDG());
 
         // Главное условие отбора события:
         // Если частица изолирована (мало энергии/импульса в конусе вокруг неё)
@@ -228,6 +240,9 @@ StatusCode myAnalysis::execute()
     // Проверка минимального количества частиц в джетах
     for (const auto& jet : jets)
     {
+        // Запоминаем размер джета
+        myEventData.jetSize.push_back(jet.constituents().size());
+
         if (jet.constituents().size() < MIN_CONSTITUENTS_PER_JET)
         {
             // Если в джетах оказалось слишком мало частиц, то скипаем

@@ -51,6 +51,13 @@ public:
         isPhoton.clear();
         isChargedHadron.clear();
 
+        // DEBUG
+        particleType.clear();
+        particlePdgId.clear();
+
+        // DEBUG
+        jetSize.clear();
+
         pfoTotalE = pfoTotalPx = pfoTotalPy = pfoTotalPz = 0.0;
         invariantMassAllPFO = invariantMassDijets = 0.0;
         recoilMassAllPFO = recoilMassDijets = 0.0;
@@ -69,11 +76,18 @@ public:
     std::vector<int> isLepton;
     std::vector<int> isPhoton;
     std::vector<int> isChargedHadron;
+    
+    // DEBUG
+    std::vector<int> particleType;
+    std::vector<int> particlePdgId;
 
     // Джеты
     std::vector<std::vector<int>>   reconstructedJetConstituentsPfoIdx;
     std::vector<double> reconstructedJetPx, reconstructedJetPy, reconstructedJetPz, reconstructedJetE;
     std::vector<double> reconstructedJetThrust;
+
+    // DEBUG
+    std::vector<int> jetSize;
 
     // Физические величины
     double invariantMassAllPFO = 0;
@@ -98,7 +112,8 @@ private:
     // Настраиваемые параметры
     Gaudi::Property<std::string> myJetClusteringAlgoName {this, "jetClusteringAlgoName",   "ee_kt_algorithm"};
     Gaudi::Property<int>         myNumberJets            {this, "numberJets",              2};
-    Gaudi::Property<double>      myIsolationDeltaR       {this, "isolationDeltaR",         0.4};
+    // Gaudi::Property<double>      myIsolationDeltaR       {this, "isolationDeltaR",         0.4};
+    Gaudi::Property<double>      myIsolationDeltaR       {this, "isolationDeltaR",         0.1};
     Gaudi::Property<std::string> myOutputFileName        {this, "outputRootFile",          "analysis_output.root"};
     Gaudi::Property<double>      myCenterOfMassEnergy    {this, "centerOfMassEnergy",      240.0};
 

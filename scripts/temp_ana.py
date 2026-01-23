@@ -26,7 +26,8 @@ from Configurables import myAnalysis
 myAnalysis = myAnalysis("myAnalysis")
 myAnalysis.jetClusteringAlgoName = "ee_kt_algorithm"
 myAnalysis.numberJets = 2
-myAnalysis.isolationDeltaR = 0.4
+# myAnalysis.isolationDeltaR = 0.4
+myAnalysis.isolationDeltaR = 0.1
 myAnalysis.outputRootFile = "{ana_path}"  # Выходной файл
 myAnalysis.centerOfMassEnergy = 240.0
 

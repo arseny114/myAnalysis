@@ -16,7 +16,8 @@
 # ──────────────────────────────────────────────────────────────────────────────
 
 # Название процесса (должно совпадать с именем, используемым при генерации файлов)
-PROCESS="E240_qqHinvi"
+# PROCESS="E240_qqHinvi"
+PROCESS="E240_qqHX"
 
 # Корневая директория всего проекта анализа
 ANALYSIS_ROOT="/cefs/higgs/kositsin/CEPCSW-tutorial/Analysis/myAnalysis"

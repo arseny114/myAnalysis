@@ -23,10 +23,12 @@ ANALYSIS_ROOT="/cefs/higgs/kositsin/CEPCSW-tutorial/Analysis/myAnalysis"
 CEPCSW_ROOT="/cefs/higgs/kositsin/CEPCSW-tutorial"
 
 # Название процесса (используется в именах файлов и поддиректориях)
-PROCESS_NAME="E240_qqHinvi"
+# PROCESS_NAME="E240_qqHinvi"
+PROCESS_NAME="E240_qqHX"
 
 # Путь к директории с reconstructed файлами (только для чтения, ничего туда не пишем)
-RECO_DIR="/cefs/higgs/liugeliang/CEPC/202501/Production/Hinvi/E240_qqHinvi/Combined"
+# RECO_DIR="/cefs/higgs/liugeliang/CEPC/202501/Production/Hinvi/E240_qqHinvi/Combined"
+RECO_DIR="/cefs/higgs/liugeliang/CEPC/202501/Production/HX/E240_qqHX/Combined"
 
 # Шаблон имени входных файлов (ls-шаблон)
 RECO_FILE_PATTERN="rec_${PROCESS_NAME}_*.root"
