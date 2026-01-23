@@ -110,12 +110,16 @@ public:
 
 private:
     // Настраиваемые параметры
-    Gaudi::Property<std::string> myJetClusteringAlgoName {this, "jetClusteringAlgoName",   "ee_kt_algorithm"};
     Gaudi::Property<int>         myNumberJets            {this, "numberJets",              2};
-    // Gaudi::Property<double>      myIsolationDeltaR       {this, "isolationDeltaR",         0.4};
-    Gaudi::Property<double>      myIsolationDeltaR       {this, "isolationDeltaR",         0.1};
+    Gaudi::Property<double>      myIsolationDeltaR       {this, "isolationDeltaR",         0.4};
     Gaudi::Property<std::string> myOutputFileName        {this, "outputRootFile",          "analysis_output.root"};
     Gaudi::Property<double>      myCenterOfMassEnergy    {this, "centerOfMassEnergy",      240.0};
+
+    // Новые свойства для ee_genkt_algorithm
+    Gaudi::Property<double>      myJetR                  {this, "jetR",                    3.0};  // Радиус R (большой для эквивалента ee_kt)
+    Gaudi::Property<double>      myJetP                  {this, "jetP",                    1.0};  // Параметр p (1 для kt-like)
+    Gaudi::Property<double>      myJetPtMin              {this, "jetPtMin",                5.0};  // Для inclusive режима (GeV), если перейдёшь
+    Gaudi::Property<bool>        myUseInclusive          {this, "useInclusive",            false};  // Флаг: true для inclusive, false для exclusive
 
     // Данные текущего события
     EventData myEventData;

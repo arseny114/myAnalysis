@@ -50,11 +50,17 @@ DECLARE_COMPONENT(myAnalysis)
 myAnalysis::myAnalysis(const std::string& name, ISvcLocator* pSvcLocator)
     : Algorithm(name, pSvcLocator)
 {
-    declareProperty("jetClusteringAlgoName",   myJetClusteringAlgoName,   "Название алгоритма кластеризации джетов");
+    // Старые свойства (можно оставить или удалить jetClusteringAlgoName, если не используешь)
     declareProperty("numberJets",              myNumberJets,              "Желаемое количество джетов");
     declareProperty("isolationDeltaR",         myIsolationDeltaR,         "Радиус конуса для расчёта изоляции (ΔR)");
     declareProperty("outputRootFile",          myOutputFileName,          "Имя выходного ROOT-файла");
     declareProperty("centerOfMassEnergy",      myCenterOfMassEnergy,      "Полная энергия в системе центра масс (ГэВ)");
+
+    // Новые свойства для ee_genkt_algorithm
+    declareProperty("jetR",                    myJetR,                    "Радиус джета R для ee_genkt_algorithm");
+    declareProperty("jetP",                    myJetP,                    "Параметр p для ee_genkt_algorithm (1 для kt-like)");
+    declareProperty("jetPtMin",                myJetPtMin,                "Минимальный pT джета для inclusive режима (GeV)");
+    declareProperty("useInclusive",            myUseInclusive,            "Использовать inclusive кластеризацию (true) или exclusive (false)");
 }
 
 /**
@@ -231,23 +237,32 @@ StatusCode myAnalysis::execute()
         }
     }
 
-    // ── 3. Кластеризация на два джета ───────────────────────────────────
-    fastjet::JetDefinition jet_def(fastjet::ee_kt_algorithm);
+    // ── 3. Кластеризация джетов ───────────────────────────────────
+    fastjet::JetDefinition jet_def(fastjet::ee_genkt_algorithm, myJetR.value(), myJetP.value());
     fastjet::ClusterSequence cs(inputParticles, jet_def);
 
-    auto jets = fastjet::sorted_by_pt(cs.exclusive_jets(myNumberJets.value()));
+    std::vector<fastjet::PseudoJet> jets;
 
-    // Проверка минимального количества частиц в джетах
-    for (const auto& jet : jets)
-    {
-        // Запоминаем размер джета
-        myEventData.jetSize.push_back(jet.constituents().size());
-
-        if (jet.constituents().size() < MIN_CONSTITUENTS_PER_JET)
-        {
-            // Если в джетах оказалось слишком мало частиц, то скипаем
+    // Выбор режима: exclusive или inclusive
+    if (myUseInclusive.value()) {
+        // Inclusive режим: джеты с pT > myJetPtMin, могут быть >2 джетов, с неприсвоенными частицами
+        jets = fastjet::sorted_by_pt(cs.inclusive_jets(myJetPtMin.value()));
+        
+        // Отсев, если меньше 2 джетов (или твои критерии)
+        if (jets.size() < 2) {
             return StatusCode::SUCCESS;
         }
+    } else {
+        // Exclusive режим: ровно myNumberJets джетов, все частицы присвоены
+        jets = fastjet::sorted_by_pt(cs.exclusive_jets(myNumberJets.value()));
+    }
+
+    // Проверка минимального количества частиц в джетах (теперь для всех джетов, не только 2)
+    for (const auto& jet : jets) {
+        myEventData.jetSize.push_back(jet.constituents().size());
+        // if (jet.constituents().size() < MIN_CONSTITUENTS_PER_JET) {
+        //     return StatusCode::SUCCESS;
+        // }
     }
 
     // Сохраняем информацию о джетах
@@ -256,13 +271,12 @@ StatusCode myAnalysis::execute()
     // ── 4. Расчёт инвариантных масс и масс отдачи ───────────────────────
     myEventData.invariantMassAllPFO = totalPFO4Momentum.M();
 
-    // Создаём четырёхимпульсы двух ведущих джетов
-    // (jets отсортированы по убыванию pT, поэтому jets[0] — самый энергичный)
-    TLorentzVector j1(jets[0].px(), jets[0].py(), jets[0].pz(), jets[0].E());
-    TLorentzVector j2(jets[1].px(), jets[1].py(), jets[1].pz(), jets[1].E());
-
-    // Суммируем четырёхимпульсы двух джетов → получаем четырёхимпульс диджет-системы
-    TLorentzVector dijet = j1 + j2;
+    // Создаём четырёхимпульсы ведущих джетов
+    // Для invariantMassDijets и recoilMassDijets теперь суммируем все джеты (или только 2 ведущих)
+    TLorentzVector dijet(0., 0., 0., 0.);
+    for (const auto& jet : jets) {
+        dijet += TLorentzVector(jet.px(), jet.py(), jet.pz(), jet.E());
+    }
 
     // Инвариантная масса диджет-системы (масса двух джетов вместе)
     // Это одна из ключевых наблюдаемых величин в анализе
@@ -285,19 +299,11 @@ StatusCode myAnalysis::execute()
     // В идеале должна быть близка к массе Z-бозона (~91 ГэВ) в процессе e⁺e⁻ → ZH
     myEventData.recoilMassAllPFO = std::sqrt(recoilE_all * recoilE_all - recoilP2_all);
 
-    // ── Расчёт массы отдачи по двум джетам (диджет-система) ──
+    // ── Расчёт массы отдачи по джетам (диджет-система или больше) ──
 
     // Энергия отдачи = полная энергия минус энергия диджет-системы
     double recoilE_dijet = sqrts - dijet.E();
-
-    // Квадрат импульса диджет-системы
-    // (альтернативная запись: можно было использовать dijet.P() * dijet.P())
-    double recoilP2_dijet = std::pow(dijet.Px(), 2) +
-                            std::pow(dijet.Py(), 2) +
-                            std::pow(dijet.Pz(), 2);
-
-    // Масса отдачи, посчитанная по диджет-системе
-    // В хорошо реконструированном событии должна быть близка к recoilMassAllPFO
+    double recoilP2_dijet = std::pow(dijet.Px(), 2) + std::pow(dijet.Py(), 2) + std::pow(dijet.Pz(), 2);
     myEventData.recoilMassDijets = std::sqrt(recoilE_dijet * recoilE_dijet - recoilP2_dijet);
 
     // Заполняем дерево и увеличиваем счётчик событий
