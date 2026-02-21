@@ -46,16 +46,10 @@ public:
         reconstructedJetE.clear();
         reconstructedJetThrust.clear();
 
-        // DEBUG
         isLepton.clear();
-        isPhoton.clear();
         isChargedHadron.clear();
-
-        // DEBUG
         particleType.clear();
-        particlePdgId.clear();
 
-        // DEBUG
         jetSize.clear();
 
         pfoTotalE = pfoTotalPx = pfoTotalPy = pfoTotalPz = 0.0;
@@ -68,28 +62,24 @@ public:
     int eventNumber = 0;
     int numberJetsInEvent = 0;
 
-    // PFO
+    // Кинематика PFO
     std::vector<double> pfoE, pfoPx, pfoPy, pfoPz;
     double pfoTotalE = 0, pfoTotalPx = 0, pfoTotalPy = 0, pfoTotalPz = 0;
 
     // Изоляция
     std::vector<double> relativeIsolation;
 
-    // DEBUG Отладка изоляции
-    std::vector<int> isLepton;
-    std::vector<int> isPhoton;
-    std::vector<int> isChargedHadron;
-    
-    // DEBUG
+    // Тип частицы (PFO) 
     std::vector<int> particleType;
-    std::vector<int> particlePdgId;
+    std::vector<int> isLepton;
+    std::vector<int> isChargedHadron;
 
     // Джеты
     std::vector<std::vector<int>>   reconstructedJetConstituentsPfoIdx;
     std::vector<double> reconstructedJetPx, reconstructedJetPy, reconstructedJetPz, reconstructedJetE;
     std::vector<double> reconstructedJetThrust;
 
-    // DEBUG
+    // Количество PFO, которые входят в джет
     std::vector<int> jetSize;
 
     // Физические величины
@@ -113,16 +103,17 @@ public:
 
 private:
     // Настраиваемые параметры
-    Gaudi::Property<int>         myNumberJets            {this, "numberJets",              2};
-    Gaudi::Property<double>      myIsolationDeltaR       {this, "isolationDeltaR",         0.4};
-    Gaudi::Property<std::string> myOutputFileName        {this, "outputRootFile",          "analysis_output.root"};
-    Gaudi::Property<double>      myCenterOfMassEnergy    {this, "centerOfMassEnergy",      240.0};
+    Gaudi::Property<int>         myNumberJets         {this, "numberJets",         2};
+    Gaudi::Property<double>      myIsolationDeltaR    {this, "isolationDeltaR",    0.4};
+    Gaudi::Property<std::string> myOutputFileName     {this, "outputRootFile",     "analysis_output.root"};
+    Gaudi::Property<double>      myCenterOfMassEnergy {this, "centerOfMassEnergy", 240.0};
 
     // Новые свойства для ee_genkt_algorithm
-    Gaudi::Property<double>      myJetR                  {this, "jetR",                    0.5};  // Радиус R (большой для эквивалента ee_kt)
-    Gaudi::Property<double>      myJetP                  {this, "jetP",                    1.0};  // Параметр p (1 для kt-like)
-    Gaudi::Property<double>      myJetPtMin              {this, "jetPtMin",                5.0};  // Для inclusive режима (GeV)
-    Gaudi::Property<bool>        myUseInclusive          {this, "useInclusive",            true};  // Флаг: true для inclusive, false для exclusive (теперь true по умолчанию)
+    Gaudi::Property<double>      myJetR               {this, "jetR",               0.5};  // Радиус R
+    Gaudi::Property<double>      myJetP               {this, "jetP",               1.0};  // Параметр p (1 для kt-like)
+    Gaudi::Property<double>      myJetPtMin           {this, "jetPtMin",           5.0};  // Для inclusive режима (GeV)
+    Gaudi::Property<bool>        myUseInclusive       {this, "useInclusive",       true}; // Флаг: true для inclusive, false для exclusive
+    Gaudi::Property<double>      myPfoEnergyMin       {this, "pfoEnergyMin",       0.5};  // Минимальная энергия PFO для джет кластеринга
 
     // Данные текущего события
     EventData myEventData;

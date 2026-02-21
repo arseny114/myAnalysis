@@ -61,6 +61,7 @@ myAnalysis::myAnalysis(const std::string& name, ISvcLocator* pSvcLocator)
     declareProperty("jetP",                    myJetP,                    "Параметр p для ee_genkt_algorithm (1 для kt-like)");
     declareProperty("jetPtMin",                myJetPtMin,                "Минимальный pT джета для inclusive режима (GeV)");
     declareProperty("useInclusive",            myUseInclusive,            "Использовать inclusive кластеризацию (true) или exclusive (false)");
+    declareProperty("pfoEnergyMin",            myPfoEnergyMin,            "Минимальная энергия PFO для кластеризации джетов (GeV)");
 }
 
 /**
@@ -98,16 +99,12 @@ StatusCode myAnalysis::initialize()
     // Изоляция
     myOutputTree->Branch("relativeIsolation", &myEventData.relativeIsolation);
 
-    // DEBUG Отладка изоляции (находим ли мы вообще частицы)
+    // Какие типы частиц были найдены
+    myOutputTree->Branch("particleType", &myEventData.particleType);
     myOutputTree->Branch("isLepton", &myEventData.isLepton);
-    myOutputTree->Branch("isPhoton", &myEventData.isPhoton);
     myOutputTree->Branch("isChargedHadron", &myEventData.isChargedHadron);
 
-    // DEBUG
-    myOutputTree->Branch("particleType", &myEventData.particleType);
-    // myOutputTree->Branch("particlePdgId", &myEventData.particlePdgId); NOTE этого не существует в выходных файлах
-
-    // DEBUG
+    // Размеры джетов и количество найденных джетов в событии
     myOutputTree->Branch("jetSize", &myEventData.jetSize);
     myOutputTree->Branch("numberJetsInEvent", &myEventData.numberJetsInEvent);
 
@@ -151,11 +148,29 @@ StatusCode myAnalysis::execute()
         // Пропускаем невалидные
         if (isInvalidPFO(pfo)) continue;
 
+        // Увеличиваем индекс при обработке нового PFO
+        pfoIndex++;
+
         // Сохраняем кинематику
         myEventData.pfoE.push_back(pfo.getEnergy());
         myEventData.pfoPx.push_back(pfo.getMomentum()[0]);
         myEventData.pfoPy.push_back(pfo.getMomentum()[1]);
         myEventData.pfoPz.push_back(pfo.getMomentum()[2]);
+
+        // Суммируем полный четырёхимпульс события
+        totalPFO4Momentum += TLorentzVector(
+            pfo.getMomentum()[0], pfo.getMomentum()[1],
+            pfo.getMomentum()[2], pfo.getEnergy()
+        );
+
+        // Если частица слишком мягкая, то не будем считать для нее
+        // изоляцию и она не будет участвовать в джет кластеринге
+        if (pfo.getEnergy() < myPfoEnergyMin.value()) 
+        {
+            // Для слишком мягких частиц изоляцию не считаем 
+            myEventData.relativeIsolation.push_back(-1.0);
+            continue;
+        }
 
         // Готовим частицу для кластеризации
         // emplace_back() это эффективный способ добавления в конец вектора
@@ -165,13 +180,7 @@ StatusCode myAnalysis::execute()
             pfo.getMomentum()[2], pfo.getEnergy()
         );
         // Сохраняем для восстановления состава джета
-        inputParticles.back().set_user_index(pfoIndex++);
-
-        // Суммируем полный четырёхимпульс события
-        totalPFO4Momentum += TLorentzVector(
-            pfo.getMomentum()[0], pfo.getMomentum()[1],
-            pfo.getMomentum()[2], pfo.getEnergy()
-        );
+        inputParticles.back().set_user_index(pfoIndex);
 
         // Считаем изоляцию
         calculateIsolationForPFO(pfo, myIsolationDeltaR);
@@ -197,43 +206,31 @@ StatusCode myAnalysis::execute()
             myEventData.pfoE[i]
         );
 
-        // Если поперечный импульс слишком мал — такую частицу обычно
-        // не рассматривают при анализе изоляции — пропускаем
-        if (p4.Pt() < MIN_PT_FOR_ISOLATION) continue;
+        // Пропускаем частицы, для которых изоляция не вычислялась
+        if (myEventData.relativeIsolation[i] == -1.0) continue;
 
-        // Получаем тип частицы (PDG-код, который обычно ставит алгоритм реконструкции,
-        // например PandoraPFA в CEPC/CEPCSW)
-        int pdgType   = (*myPfoCollPtr)[i].getType();
+        // Получаем тип частицы
+        int pfoType   = (*myPfoCollPtr)[i].getType();
 
-        int absPdg    = std::abs(pdgType);                  // модуль PDG-кода
+        int absPdg    = std::abs(pfoType);                  // модуль типа
         float charge  = (*myPfoCollPtr)[i].getCharge();     // заряд частицы
         double relIso = myEventData.relativeIsolation[i];   // ранее посчитанная изоляция
 
         // Классифицируем частицу по типу
-        bool isLepton        = (absPdg == 11 || absPdg == 13);                  // e⁻/e⁺, μ⁻/μ⁺
-        bool isChargedHadron = (absPdg == 2212 || absPdg == 321 || absPdg == 211); // заряженные адроны
-        bool isPhoton        = (pdgType == 22);                                 // фотон, их так нельзя найти (они все с типом 0)
+        bool isLepton        = (absPdg == 11 || absPdg == 13);                        // e⁻/e⁺, μ⁻/μ⁺
+        bool isChargedHadron = (absPdg == 2212 || absPdg == 321 || absPdg == 211);    // заряженные адроны
 
-        // DEBUG
+        // Запоминмаем тип этой частицы и что это была за частица
+        myEventData.particleType.push_back(pfoType);
         myEventData.isLepton.push_back(isLepton ? 1 : 0);
-        myEventData.isPhoton.push_back(isPhoton ? 1 : 0);
         myEventData.isChargedHadron.push_back(isChargedHadron ? 1 : 0);
 
-        // DEBUG
-        myEventData.particleType.push_back(pdgType);
-
-        // Вот это вызывает краш (видимо в PID нет просто этих полей)
-        // myEventData.particlePdgId.push_back((*myPfoCollPtr)[i].getParticleIDUsed().getPDG());
-
-        // Главное условие отбора события:
+        // Условие отбора события:
         // Если частица изолирована (мало энергии/импульса в конусе вокруг неё)
-        // И при этом она относится к одной из «нежелательных» категорий,
-        // то помечаем событие как подлежащее отбрасыванию
-        if (relIso > 0 && relIso < ISOLATION_THRESHOLD && 
-            (isLepton || isPhoton || isChargedHadron))
+        // И при этом она относится к одной из «нежелательных» категорий, то 
+        // отбрасываем это событие
+        if (relIso > 0 && relIso < ISOLATION_THRESHOLD && (isLepton || isChargedHadron))
         {
-            // Если событие содержит хотя бы одну изолированную
-            // лептон/фотон/заряженный адрон → пропускаем обработку дальше
             return StatusCode::SUCCESS;
         }
     }
@@ -246,13 +243,13 @@ StatusCode myAnalysis::execute()
 
     // Выбор режима: exclusive или inclusive
     if (myUseInclusive.value()) {
-        // Inclusive режим: джеты с pT > myJetPtMin, могут быть >2 джетов, с неприсвоенными частицами
+        // Inclusive режим: джеты с pT > myJetPtMin, может быть >2 джетов, с неприсвоенными частицами
         jets = fastjet::sorted_by_pt(cs.inclusive_jets(myJetPtMin.value()));
 
         // Записываем колличество найденных джетов в событии
         myEventData.numberJetsInEvent = jets.size();
 
-        // Отсев, если меньше 2 джетов (или твои критерии)
+        // Отсев, если нашлось не 2 джета (TODO: этот отсев нужно переделать)
         if (jets.size() != 2) {
             return StatusCode::SUCCESS;
         }
@@ -261,7 +258,7 @@ StatusCode myAnalysis::execute()
         jets = fastjet::sorted_by_pt(cs.exclusive_jets(myNumberJets.value()));
     }
 
-    // Проверка минимального количества частиц в джетах (теперь для всех джетов, не только 2)
+    // Проверка минимального количества частиц во всех джетах
     for (const auto& jet : jets) {
         myEventData.jetSize.push_back(jet.constituents().size());
         if (jet.constituents().size() < MIN_CONSTITUENTS_PER_JET) {
@@ -274,7 +271,7 @@ StatusCode myAnalysis::execute()
 
     // ── 4. Расчёт инвариантных масс и масс отдачи ───────────────────────
     myEventData.invariantMassAllPFO = totalPFO4Momentum.M();
-    if (myEventData.invariantMassAllPFO > myCenterOfMassEnergy) // отбрасываем ошибки реконструкции
+    if (myEventData.invariantMassAllPFO > myCenterOfMassEnergy) // отбрасываем ошибки реконструкции (TODO: почему они возникли?)
       return StatusCode::SUCCESS;
 
     // Создаём четырёхимпульсы ведущих джетов

@@ -34,6 +34,7 @@ myAnalysis.jetR = 0.5  # R для exclusive-like (эквивалент ee_kt)
 myAnalysis.jetP = 1.0  # kt-like
 myAnalysis.jetPtMin = 5.0  # Для inclusive
 myAnalysis.useInclusive = True  # True для inclusive, False для exclusive
+myAnalysis.pfoEnergyMin = 1.0 # Частицы с E < 1.0 ГэВ не будут участвовать в кластеризации и изоляции
 
 ########################################
 from Configurables import ApplicationMgr
