@@ -17,15 +17,6 @@
 #include <vector>
 #include <string>
 
-/** Минимальный поперечный импульс для расчёта изоляции (ГэВ) */
-constexpr double MIN_PT_FOR_ISOLATION = 2.0;
-
-/** Порог изоляции, ниже которого частица считается изолированной */
-constexpr double ISOLATION_THRESHOLD = 0.1;
-
-/** Минимальное количество частиц в джете для принятия события */
-constexpr size_t MIN_CONSTITUENTS_PER_JET = 6;
-
 /**
  * @brief Класс для хранения данных одного события
  */
@@ -109,11 +100,14 @@ private:
     Gaudi::Property<double>      myCenterOfMassEnergy {this, "centerOfMassEnergy", 240.0};
 
     // Новые свойства для ee_genkt_algorithm
-    Gaudi::Property<double>      myJetR               {this, "jetR",               0.5};  // Радиус R
+    Gaudi::Property<double>      myJetR               {this, "jetR",               0.5};  // Радиус кластеризации R
     Gaudi::Property<double>      myJetP               {this, "jetP",               1.0};  // Параметр p (1 для kt-like)
     Gaudi::Property<double>      myJetPtMin           {this, "jetPtMin",           5.0};  // Для inclusive режима (GeV)
     Gaudi::Property<bool>        myUseInclusive       {this, "useInclusive",       true}; // Флаг: true для inclusive, false для exclusive
     Gaudi::Property<double>      myPfoEnergyMin       {this, "pfoEnergyMin",       0.5};  // Минимальная энергия PFO для джет кластеринга
+    Gaudi::Property<double>      myMinPtForIsolation  {this, "minPtForIsolation",  2.0};  // Минимальный Pt для расчёта изоляции (ГэВ)
+    Gaudi::Property<double>      myIsolationThreshold {this, "isolationThreshold", 0.1};  // Порог изоляции
+    Gaudi::Property<size_t>      myMinConstPerJet     {this, "minConstPerJet",     6};    // Минимальное количество частиц в джете
 
     // Данные текущего события
     EventData myEventData;

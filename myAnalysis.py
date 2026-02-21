@@ -33,6 +33,9 @@ myAnalysis.jetP = 1.0  # kt-like
 myAnalysis.jetPtMin = 5.0  # Для inclusive
 myAnalysis.useInclusive = False  # False для exclusive, True для inclusive
 myAnalysis.pfoEnergyMin = 1.0 # Частицы с E < 1.0 ГэВ не будут участвовать в кластеризации и изоляции
+myAnalysis.minPtForIsolation = 2.0   # Минимальный Pt для расчёта изоляции (ГэВ)
+myAnalysis.isolationThreshold = 0.1  # Порог изоляции
+myAnalysis.minConstPerJet = 6        # Минимальное количество частиц в джете
 
 ########################################
 from Configurables import ApplicationMgr

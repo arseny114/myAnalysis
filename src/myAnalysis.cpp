@@ -50,7 +50,7 @@ DECLARE_COMPONENT(myAnalysis)
 myAnalysis::myAnalysis(const std::string& name, ISvcLocator* pSvcLocator)
     : Algorithm(name, pSvcLocator)
 {
-    // Старые свойства (можно оставить или удалить jetClusteringAlgoName, если не используешь)
+    // Старые свойства
     declareProperty("numberJets",              myNumberJets,              "Желаемое количество джетов");
     declareProperty("isolationDeltaR",         myIsolationDeltaR,         "Радиус конуса для расчёта изоляции (ΔR)");
     declareProperty("outputRootFile",          myOutputFileName,          "Имя выходного ROOT-файла");
@@ -62,6 +62,9 @@ myAnalysis::myAnalysis(const std::string& name, ISvcLocator* pSvcLocator)
     declareProperty("jetPtMin",                myJetPtMin,                "Минимальный pT джета для inclusive режима (GeV)");
     declareProperty("useInclusive",            myUseInclusive,            "Использовать inclusive кластеризацию (true) или exclusive (false)");
     declareProperty("pfoEnergyMin",            myPfoEnergyMin,            "Минимальная энергия PFO для кластеризации джетов (GeV)");
+    declareProperty("minPtForIsolation",       myMinPtForIsolation,       "Минимальный поперечный импульс для расчёта изоляции (ГэВ)");
+    declareProperty("isolationThreshold",      myIsolationThreshold,      "Порог изоляции, ниже которого частица считается изолированной");
+    declareProperty("minConstPerJet",          myMinConstPerJet,          "Минимальное количество частиц в джете для принятия события");
 }
 
 /**
@@ -229,7 +232,7 @@ StatusCode myAnalysis::execute()
         // Если частица изолирована (мало энергии/импульса в конусе вокруг неё)
         // И при этом она относится к одной из «нежелательных» категорий, то 
         // отбрасываем это событие
-        if (relIso > 0 && relIso < ISOLATION_THRESHOLD && (isLepton || isChargedHadron))
+        if (relIso > 0 && relIso < myIsolationThreshold.value() && (isLepton || isChargedHadron))
         {
             return StatusCode::SUCCESS;
         }
@@ -261,7 +264,7 @@ StatusCode myAnalysis::execute()
     // Проверка минимального количества частиц во всех джетах
     for (const auto& jet : jets) {
         myEventData.jetSize.push_back(jet.constituents().size());
-        if (jet.constituents().size() < MIN_CONSTITUENTS_PER_JET) {
+        if (jet.constituents().size() < myMinConstPerJet.value()) {
             return StatusCode::SUCCESS;
         }
     }
@@ -349,7 +352,7 @@ bool myAnalysis::isInvalidPFO(const edm4hep::ReconstructedParticle& pfo) const
  * deltaR вокруг данной частицы, нормированная на модуль импульса самой частицы.
  *
  * Используется суммарная изоляция (учитываются и заряженные, и нейтральные частицы).
- * Частицы с поперечным импульсом Pt меньше порогового значения MIN_PT_FOR_ISOLATION
+ * Частицы с поперечным импульсом Pt меньше порогового значения myMinPtForIsolation.value()
  * считаются не подлежащими изоляционному анализу и получают значение -1.
  *
  * @param pfo Ссылка на объект реконструированной частицы (PFO), для которой
@@ -367,7 +370,7 @@ void myAnalysis::calculateIsolationForPFO(const edm4hep::ReconstructedParticle& 
 
     // Если поперечный импульс слишком мал, то изоляцию не считаем
     // (обычно такие частицы не представляют интереса для анализа изоляции)
-    if (thisP4.Pt() < MIN_PT_FOR_ISOLATION)
+    if (thisP4.Pt() < myMinPtForIsolation.value())
     {
         myEventData.relativeIsolation.push_back(-1.);
         return;
