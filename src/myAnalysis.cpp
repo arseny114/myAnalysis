@@ -66,7 +66,8 @@ myAnalysis::myAnalysis(const std::string& name, ISvcLocator* pSvcLocator)
     declareProperty("isolationThreshold",      myIsolationThreshold,      "Порог изоляции, ниже которого частица считается изолированной");
     declareProperty("minConstPerJet",          myMinConstPerJet,          "Минимальное количество частиц в джете для принятия события");
 
-    declareProperty("applyEventSelection",     myApplyEventSelection,     "Применять отбор событий (true) или сохранять все (false)");
+    declareProperty("applyJetSelection",       myApplyJetSelection,       "Применять отбор по джетам (true) или сохранять все (false)");
+    declareProperty("applyIsolationSelection", myApplyIsolationSelection, "Применять отбор по изоляции (true) или сохранять все (false)");
 }
 
 /**
@@ -233,7 +234,7 @@ StatusCode myAnalysis::execute()
         // Если частица изолирована (мало энергии/импульса в конусе вокруг неё)
         // И при этом она относится к одной из «нежелательных» категорий, то 
         // отбрасываем это событие
-        if (myApplyEventSelection.value()) // отбрасываем события, только если включен режим отбрасывания
+        if (myApplyIsolationSelection.value()) // отбрасываем события, только если включен режим отбрасывания
         {
             if (relIso > 0 && relIso < myIsolationThreshold.value() && (isLepton || isChargedHadron))
             {
@@ -257,7 +258,7 @@ StatusCode myAnalysis::execute()
         // Записываем колличество найденных джетов в событии
         myEventData.numberJetsInEvent = jets.size();
 
-        if (myApplyEventSelection.value()) // отбрасываем события, только если включен режим отбрасывания
+        if (myApplyJetSelection.value()) // отбрасываем события, только если включен режим отбрасывания
         {
             // Отсев, если нашлось не 2 джета (TODO: этот отсев нужно переделать)
             if (jets.size() != 2) 
@@ -278,7 +279,7 @@ StatusCode myAnalysis::execute()
         // Запоминаем размер джета
         myEventData.jetSize.push_back(jet.constituents().size());
 
-        if (myApplyEventSelection.value()) // отбрасываем события, только если включен режим отбрасывания
+        if (myApplyJetSelection.value()) // отбрасываем события, только если включен режим отбрасывания
         {
             // Отсев, если в размер джетов меньше требуемого
             if (jet.constituents().size() < myMinConstPerJet.value()) 
