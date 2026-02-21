@@ -28,7 +28,7 @@ myAnalysis.outputRootFile = "test_output.root"
 myAnalysis.centerOfMassEnergy = 240.0
 
 # Новые параметры для ee_genkt
-myAnalysis.jetR = 3.0  # Большой R для exclusive-like (эквивалент ee_kt)
+myAnalysis.jetR = 0.5  # Большой R для exclusive-like (эквивалент ee_kt)
 myAnalysis.jetP = 1.0  # kt-like
 myAnalysis.jetPtMin = 5.0  # Для inclusive
 myAnalysis.useInclusive = False  # False для exclusive, True для inclusive

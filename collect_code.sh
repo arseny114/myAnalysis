@@ -6,7 +6,7 @@ output_file="code_summary.txt"
 > "$output_file"
 
 # Используем find для поиска файлов и цикл for для обработки
-for file in $(find . -type f -not -path './build/*' \( -name "*.cpp" -o -name "*.h" -o -name "*.py" \)); do
+for file in $(find . -type f -not -path './build/*' \( -name "*.cpp" -o -name "*.h" -o -name "*.py" -o -name "*.sh" \)); do
     echo "${file#./}:" >> "$output_file"
     echo "---" >> "$output_file"
     cat "$file" >> "$output_file"

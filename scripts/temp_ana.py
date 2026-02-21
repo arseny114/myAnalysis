@@ -24,16 +24,16 @@ inp.collections = [ "CyberPFOPID" ]
 
 from Configurables import myAnalysis
 myAnalysis = myAnalysis("myAnalysis")
-myAnalysis.numberJets = 2
+myAnalysis.numberJets = 2  # Не используется в inclusive моде поиска джетов
 myAnalysis.isolationDeltaR = 0.4
 myAnalysis.outputRootFile = "{ana_path}"  # Выходной файл
 myAnalysis.centerOfMassEnergy = 240.0
 
 # Новые параметры для ee_genkt
-myAnalysis.jetR = 3.0  # Большой R для exclusive-like (эквивалент ee_kt)
+myAnalysis.jetR = 0.5  # R для exclusive-like (эквивалент ee_kt)
 myAnalysis.jetP = 1.0  # kt-like
 myAnalysis.jetPtMin = 5.0  # Для inclusive
-myAnalysis.useInclusive = False  # False для exclusive, True для inclusive
+myAnalysis.useInclusive = True  # True для inclusive, False для exclusive
 
 ########################################
 from Configurables import ApplicationMgr

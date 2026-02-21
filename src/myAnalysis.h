@@ -1,4 +1,4 @@
-// src/myAnalysis.h
+// src/myAnalysis.h (updated)
 
 #ifndef MY_ANALYSIS_H
 #define MY_ANALYSIS_H
@@ -59,11 +59,14 @@ public:
         jetSize.clear();
 
         pfoTotalE = pfoTotalPx = pfoTotalPy = pfoTotalPz = 0.0;
-        invariantMassAllPFO = invariantMassDijets = 0.0;
-        recoilMassAllPFO = recoilMassDijets = 0.0;
+        invariantMassAllPFO = invariantMassJets = 0.0;
+        recoilMassAllPFO = recoilMassJets = 0.0;
+
+        numberJetsInEvent = 0;
     }
 
     int eventNumber = 0;
+    int numberJetsInEvent = 0;
 
     // PFO
     std::vector<double> pfoE, pfoPx, pfoPy, pfoPz;
@@ -91,9 +94,9 @@ public:
 
     // Физические величины
     double invariantMassAllPFO = 0;
-    double invariantMassDijets = 0;
+    double invariantMassJets = 0;
     double recoilMassAllPFO    = 0;
-    double recoilMassDijets    = 0;
+    double recoilMassJets    = 0;
 };
 
 /**
@@ -116,10 +119,10 @@ private:
     Gaudi::Property<double>      myCenterOfMassEnergy    {this, "centerOfMassEnergy",      240.0};
 
     // Новые свойства для ee_genkt_algorithm
-    Gaudi::Property<double>      myJetR                  {this, "jetR",                    3.0};  // Радиус R (большой для эквивалента ee_kt)
+    Gaudi::Property<double>      myJetR                  {this, "jetR",                    0.5};  // Радиус R (большой для эквивалента ee_kt)
     Gaudi::Property<double>      myJetP                  {this, "jetP",                    1.0};  // Параметр p (1 для kt-like)
-    Gaudi::Property<double>      myJetPtMin              {this, "jetPtMin",                5.0};  // Для inclusive режима (GeV), если перейдёшь
-    Gaudi::Property<bool>        myUseInclusive          {this, "useInclusive",            false};  // Флаг: true для inclusive, false для exclusive
+    Gaudi::Property<double>      myJetPtMin              {this, "jetPtMin",                5.0};  // Для inclusive режима (GeV)
+    Gaudi::Property<bool>        myUseInclusive          {this, "useInclusive",            true};  // Флаг: true для inclusive, false для exclusive (теперь true по умолчанию)
 
     // Данные текущего события
     EventData myEventData;

@@ -1,4 +1,4 @@
-// src/myAnalysis.cpp
+// src/myAnalysis.cpp (updated)
 
 /**
  * @file myAnalysis.cpp
@@ -8,7 +8,7 @@
  * - чтение реконструированных частиц (PFO)
  * - расчёт изоляции частиц
  * - отсев событий с изолированными лептонами, фотонами и заряженными адронами
- * - кластеризация на два джета с помощью fastjet
+ * - кластеризация на джеты с помощью fastjet (теперь инклюзивно по умолчанию)
  * - отсев событий, в которых хотя бы один джет содержит менее 6 частиц
  * - расчёт инвариантной массы и массы отдачи двумя способами
  */
@@ -109,6 +109,7 @@ StatusCode myAnalysis::initialize()
 
     // DEBUG
     myOutputTree->Branch("jetSize", &myEventData.jetSize);
+    myOutputTree->Branch("numberJetsInEvent", &myEventData.numberJetsInEvent);
 
     // Характеристики реконструированных джетов
     myOutputTree->Branch("reconstructedJetConstituentsPfoIdx", &myEventData.reconstructedJetConstituentsPfoIdx);
@@ -120,9 +121,9 @@ StatusCode myAnalysis::initialize()
 
     // Физические величины, которые нас интересуют
     myOutputTree->Branch("invariantMassAllPFO", &myEventData.invariantMassAllPFO);
-    myOutputTree->Branch("invariantMassDijets", &myEventData.invariantMassDijets);
+    myOutputTree->Branch("invariantMassJets", &myEventData.invariantMassJets);
     myOutputTree->Branch("recoilMassAllPFO",    &myEventData.recoilMassAllPFO);
-    myOutputTree->Branch("recoilMassDijets",    &myEventData.recoilMassDijets);
+    myOutputTree->Branch("recoilMassJets",    &myEventData.recoilMassJets);
 
     return StatusCode::SUCCESS;
 }
@@ -247,9 +248,12 @@ StatusCode myAnalysis::execute()
     if (myUseInclusive.value()) {
         // Inclusive режим: джеты с pT > myJetPtMin, могут быть >2 джетов, с неприсвоенными частицами
         jets = fastjet::sorted_by_pt(cs.inclusive_jets(myJetPtMin.value()));
-        
+
+        // Записываем колличество найденных джетов в событии
+        myEventData.numberJetsInEvent = jets.size();
+
         // Отсев, если меньше 2 джетов (или твои критерии)
-        if (jets.size() < 2) {
+        if (jets.size() != 2) {
             return StatusCode::SUCCESS;
         }
     } else {
@@ -260,9 +264,9 @@ StatusCode myAnalysis::execute()
     // Проверка минимального количества частиц в джетах (теперь для всех джетов, не только 2)
     for (const auto& jet : jets) {
         myEventData.jetSize.push_back(jet.constituents().size());
-        // if (jet.constituents().size() < MIN_CONSTITUENTS_PER_JET) {
-        //     return StatusCode::SUCCESS;
-        // }
+        if (jet.constituents().size() < MIN_CONSTITUENTS_PER_JET) {
+            return StatusCode::SUCCESS;
+        }
     }
 
     // Сохраняем информацию о джетах
@@ -270,17 +274,21 @@ StatusCode myAnalysis::execute()
 
     // ── 4. Расчёт инвариантных масс и масс отдачи ───────────────────────
     myEventData.invariantMassAllPFO = totalPFO4Momentum.M();
+    if (myEventData.invariantMassAllPFO > myCenterOfMassEnergy) // отбрасываем ошибки реконструкции
+      return StatusCode::SUCCESS;
 
     // Создаём четырёхимпульсы ведущих джетов
-    // Для invariantMassDijets и recoilMassDijets теперь суммируем все джеты (или только 2 ведущих)
-    TLorentzVector dijet(0., 0., 0., 0.);
+    // Для invariantMassJets и recoilMassJets теперь суммируем все джеты
+    TLorentzVector summedJets(0., 0., 0., 0.);
     for (const auto& jet : jets) {
-        dijet += TLorentzVector(jet.px(), jet.py(), jet.pz(), jet.E());
+        summedJets += TLorentzVector(jet.px(), jet.py(), jet.pz(), jet.E());
     }
 
-    // Инвариантная масса диджет-системы (масса двух джетов вместе)
+    // Инвариантная масса системы джетов (масса всех джетов вместе)
     // Это одна из ключевых наблюдаемых величин в анализе
-    myEventData.invariantMassDijets = dijet.M();
+    myEventData.invariantMassJets = summedJets.M();
+    if (myEventData.invariantMassJets > myCenterOfMassEnergy) // отбрасываем ошибки реконструкции
+          return StatusCode::SUCCESS;
 
     // Энергия в системе центра масс (обычно 240 ГэВ для CEPC при Z-фабрике)
     double sqrts = myCenterOfMassEnergy;
@@ -299,12 +307,12 @@ StatusCode myAnalysis::execute()
     // В идеале должна быть близка к массе Z-бозона (~91 ГэВ) в процессе e⁺e⁻ → ZH
     myEventData.recoilMassAllPFO = std::sqrt(recoilE_all * recoilE_all - recoilP2_all);
 
-    // ── Расчёт массы отдачи по джетам (диджет-система или больше) ──
+    // ── Расчёт массы отдачи по джетам (система всех джетов) ──
 
-    // Энергия отдачи = полная энергия минус энергия диджет-системы
-    double recoilE_dijet = sqrts - dijet.E();
-    double recoilP2_dijet = std::pow(dijet.Px(), 2) + std::pow(dijet.Py(), 2) + std::pow(dijet.Pz(), 2);
-    myEventData.recoilMassDijets = std::sqrt(recoilE_dijet * recoilE_dijet - recoilP2_dijet);
+    // Энергия отдачи = полная энергия минус энергия системы джетов
+    double recoilE_jets = sqrts - summedJets.E();
+    double recoilP2_jets = std::pow(summedJets.Px(), 2) + std::pow(summedJets.Py(), 2) + std::pow(summedJets.Pz(), 2);
+    myEventData.recoilMassJets = std::sqrt(recoilE_jets * recoilE_jets - recoilP2_jets);
 
     // Заполняем дерево и увеличиваем счётчик событий
     myEventData.eventNumber++;
@@ -415,7 +423,7 @@ void myAnalysis::calculateIsolationForPFO(const edm4hep::ReconstructedParticle& 
  */
 void myAnalysis::saveJetClusteringResults(const std::vector<fastjet::PseudoJet>& jets)
 {
-    // Проходим по всем найденным джетам (их 2 в нашем случае)
+    // Проходим по всем найденным джетам
     for (const auto& jet : jets)
     {
         // Вектор для хранения индексов исходных PFO, входящих в данный джет

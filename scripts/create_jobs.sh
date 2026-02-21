@@ -28,7 +28,8 @@ PROCESS_NAME="E240_qqHX"
 
 # Путь к директории с reconstructed файлами (только для чтения, ничего туда не пишем)
 # RECO_DIR="/cefs/higgs/liugeliang/CEPC/202501/Production/Hinvi/E240_qqHinvi/Combined"
-RECO_DIR="/cefs/higgs/liugeliang/CEPC/202501/Production/HX/E240_qqHX/Combined"
+# RECO_DIR="/cefs/higgs/liugeliang/CEPC/202501/Production/HX/E240_qqHX/Combined"
+RECO_DIR="/cefs/higgs/zhangkl/Production/25036/E240_qqHX/Reco"
 
 # Шаблон имени входных файлов (ls-шаблон)
 RECO_FILE_PATTERN="rec_${PROCESS_NAME}_*.root"
@@ -127,9 +128,7 @@ EOF
         chmod +x "$sub_script"
 
         # Подача задания на кластер
-        hep_sub "$sub_script" \
-            -g "$HEP_GROUP" \
-            -mem "$MEMORY_MB" \
+        hep_sub -wt long "$sub_script" \
             -o "${LOG_DIR}/ana_${TIMESTAMP}_${PROCESS_NAME}_${idx}.out" \
             -e "${LOG_DIR}/ana_${TIMESTAMP}_${PROCESS_NAME}_${idx}.err"
 
