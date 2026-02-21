@@ -218,7 +218,6 @@ StatusCode myAnalysis::execute()
         int pfoType   = (*myPfoCollPtr)[i].getType();
 
         int absPdg    = std::abs(pfoType);                  // модуль типа
-        float charge  = (*myPfoCollPtr)[i].getCharge();     // заряд частицы
         double relIso = myEventData.relativeIsolation[i];   // ранее посчитанная изоляция
 
         // Классифицируем частицу по типу
