@@ -44,6 +44,8 @@ show_help() {
                           (по умолчанию: higgs)
     -m, --memory          Требуемая память в МБ
                           (по умолчанию: 6000)
+    -n, --num-files       Максимальное количество файлов для обработки
+                          (по умолчанию: 0 = все файлы)
     -h, --help            Показать эту справку
 
 Примеры:
@@ -68,6 +70,7 @@ RECO_DIR=""
 SUBMIT_JOBS=1
 HEP_GROUP="higgs"
 MEMORY_MB=6000
+MAX_FILES=0  # 0 означает обработку всех файлов
 
 # ──────────────────────────────────────────────────────────────────────────────
 #          Парсинг аргументов командной строки
@@ -100,6 +103,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         -m|--memory)
             MEMORY_MB="$2"
+            shift 2
+            ;;
+        -n|--num-files)
+            MAX_FILES="$2"
             shift 2
             ;;
         -h|--help)
@@ -177,6 +184,12 @@ echo "Путь: ${RECO_DIR}/${RECO_FILE_PATTERN}"
 
 mapfile -t RECO_FILES < <(ls -v "${RECO_DIR}"/${RECO_FILE_PATTERN} 2>/dev/null)
 
+# Если установлен лимит и найдено больше файлов, обрезаем массив
+if [ "$MAX_FILES" -gt 0 ] && [ ${#RECO_FILES[@]} -gt "$MAX_FILES" ]; then
+    echo "Ограничение количества файлов: ${MAX_FILES} из ${#RECO_FILES[@]}"
+    RECO_FILES=("${RECO_FILES[@]:0:$MAX_FILES}")
+fi
+
 if [ ${#RECO_FILES[@]} -eq 0 ]; then
     echo "ОШИБКА: Не найдено ни одного файла по шаблону ${RECO_FILE_PATTERN}"
     echo "       Проверьте путь и наличие файлов!"
@@ -192,6 +205,11 @@ echo
 # ──────────────────────────────────────────────────────────────────────────────
 job_counter=0
 for input_file in "${RECO_FILES[@]}"; do
+    # Дополнительная страховка от выхода за пределы лимита внутри цикла
+    if [ "$MAX_FILES" -gt 0 ] && [ "$job_counter" -ge "$MAX_FILES" ]; then
+        break
+    fi
+
     idx=$(printf "%05d" "$job_counter")
     output_file="${RES_DIR}/ana_${PROCESS_NAME}_${idx}.root"
     
