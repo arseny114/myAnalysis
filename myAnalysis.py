@@ -36,6 +36,7 @@ myAnalysis.pfoEnergyMin = 1.0 # Частицы с E < 1.0 ГэВ не будут
 myAnalysis.minPtForIsolation = 2.0   # Минимальный Pt для расчёта изоляции (ГэВ)
 myAnalysis.isolationThreshold = 0.1  # Порог изоляции
 myAnalysis.minConstPerJet = 6        # Минимальное количество частиц в джете
+myAnalysis.applyEventSelection = True  # False сохранять все события
 
 ########################################
 from Configurables import ApplicationMgr

@@ -65,6 +65,8 @@ myAnalysis::myAnalysis(const std::string& name, ISvcLocator* pSvcLocator)
     declareProperty("minPtForIsolation",       myMinPtForIsolation,       "Минимальный поперечный импульс для расчёта изоляции (ГэВ)");
     declareProperty("isolationThreshold",      myIsolationThreshold,      "Порог изоляции, ниже которого частица считается изолированной");
     declareProperty("minConstPerJet",          myMinConstPerJet,          "Минимальное количество частиц в джете для принятия события");
+
+    declareProperty("applyEventSelection",     myApplyEventSelection,     "Применять отбор событий (true) или сохранять все (false)");
 }
 
 /**
@@ -232,9 +234,12 @@ StatusCode myAnalysis::execute()
         // Если частица изолирована (мало энергии/импульса в конусе вокруг неё)
         // И при этом она относится к одной из «нежелательных» категорий, то 
         // отбрасываем это событие
-        if (relIso > 0 && relIso < myIsolationThreshold.value() && (isLepton || isChargedHadron))
+        if (myApplyEventSelection.value()) // отбрасываем события, только если включен режим отбрасывания
         {
-            return StatusCode::SUCCESS;
+            if (relIso > 0 && relIso < myIsolationThreshold.value() && (isLepton || isChargedHadron))
+            {
+                return StatusCode::SUCCESS;
+            }
         }
     }
 
@@ -245,27 +250,42 @@ StatusCode myAnalysis::execute()
     std::vector<fastjet::PseudoJet> jets;
 
     // Выбор режима: exclusive или inclusive
-    if (myUseInclusive.value()) {
+    if (myUseInclusive.value()) 
+    {
         // Inclusive режим: джеты с pT > myJetPtMin, может быть >2 джетов, с неприсвоенными частицами
         jets = fastjet::sorted_by_pt(cs.inclusive_jets(myJetPtMin.value()));
 
         // Записываем колличество найденных джетов в событии
         myEventData.numberJetsInEvent = jets.size();
 
-        // Отсев, если нашлось не 2 джета (TODO: этот отсев нужно переделать)
-        if (jets.size() != 2) {
-            return StatusCode::SUCCESS;
+        if (myApplyEventSelection.value()) // отбрасываем события, только если включен режим отбрасывания
+        {
+            // Отсев, если нашлось не 2 джета (TODO: этот отсев нужно переделать)
+            if (jets.size() != 2) 
+            {
+                return StatusCode::SUCCESS;
+            }
         }
-    } else {
+    } 
+    else 
+    {
         // Exclusive режим: ровно myNumberJets джетов, все частицы присвоены
         jets = fastjet::sorted_by_pt(cs.exclusive_jets(myNumberJets.value()));
     }
 
     // Проверка минимального количества частиц во всех джетах
-    for (const auto& jet : jets) {
+    for (const auto& jet : jets) 
+    {
+        // Запоминаем размер джета
         myEventData.jetSize.push_back(jet.constituents().size());
-        if (jet.constituents().size() < myMinConstPerJet.value()) {
-            return StatusCode::SUCCESS;
+
+        if (myApplyEventSelection.value()) // отбрасываем события, только если включен режим отбрасывания
+        {
+            // Отсев, если в размер джетов меньше требуемого
+            if (jet.constituents().size() < myMinConstPerJet.value()) 
+            {
+                return StatusCode::SUCCESS;
+            }
         }
     }
 

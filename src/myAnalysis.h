@@ -109,6 +109,8 @@ private:
     Gaudi::Property<double>      myIsolationThreshold {this, "isolationThreshold", 0.1};  // Порог изоляции
     Gaudi::Property<size_t>      myMinConstPerJet     {this, "minConstPerJet",     6};    // Минимальное количество частиц в джете
 
+    Gaudi::Property<bool>        myApplyEventSelection{this, "applyEventSelection", true}; // Если false, события не отбрасываются
+
     // Данные текущего события
     EventData myEventData;
 
