@@ -218,12 +218,12 @@ StatusCode myAnalysis::execute()
         // Получаем тип частицы
         int pfoType   = (*myPfoCollPtr)[i].getType();
 
-        int absPdg    = std::abs(pfoType);                  // модуль типа
+        int absPfoType    = std::abs(pfoType);              // модуль типа
         double relIso = myEventData.relativeIsolation[i];   // ранее посчитанная изоляция
 
         // Классифицируем частицу по типу
-        bool isLepton        = (absPdg == 11 || absPdg == 13);                        // e⁻/e⁺, μ⁻/μ⁺
-        bool isChargedHadron = (absPdg == 2212 || absPdg == 321 || absPdg == 211);    // заряженные адроны
+        bool isLepton        = (absPfoType == 11 || absPfoType == 13);                        // e⁻/e⁺, μ⁻/μ⁺
+        bool isChargedHadron = (absPfoType == 2212 || absPfoType == 321 || absPfoType == 211);    // заряженные адроны
 
         // Запоминмаем тип этой частицы и что это была за частица
         myEventData.particleType.push_back(pfoType);
@@ -367,9 +367,9 @@ bool myAnalysis::isInvalidPFO(const edm4hep::ReconstructedParticle& pfo) const
 /**
  * @brief Вычисляет относительную изоляцию данной PFO-частицы
  *
- * Относительная изоляция определяется как сумма модулей импульсов всех других
- * частиц (кроме самой рассматриваемой), находящихся внутри конуса с раствором
- * deltaR вокруг данной частицы, нормированная на модуль импульса самой частицы.
+ * Относительная изоляция определяется как сумма модулей поперечных импульсов всех других 
+ * частиц (кроме самой рассматриваемой), находящихся внутри конуса с раствором deltaR вокруг 
+ * данной частицы, нормированная на модуль поперечного импульса самой частицы.
  *
  * Используется суммарная изоляция (учитываются и заряженные, и нейтральные частицы).
  * Частицы с поперечным импульсом Pt меньше порогового значения myMinPtForIsolation.value()
@@ -417,14 +417,14 @@ void myAnalysis::calculateIsolationForPFO(const edm4hep::ReconstructedParticle& 
         // Проверяем, попадает ли соседняя частица в конус изоляции
         if (thisP4.DeltaR(otherP4) < deltaR)
         {
-            // Добавляем модуль импульса соседней частицы к сумме
-            sumP_inCone += otherP4.P();
+            // Добавляем модуль поперечного импульса соседней частицы к сумме
+            sumP_inCone += otherP4.Pt();
         }
     }
 
     // Относительная изоляция = сумма импульсов в конусе / импульс центральной частицы
     // Значение сохраняется в вектор для последующей записи в дерево
-    myEventData.relativeIsolation.push_back(sumP_inCone / thisP4.P());
+    myEventData.relativeIsolation.push_back(sumP_inCone / thisP4.Pt());
 }
 
 /**
