@@ -106,6 +106,10 @@ StatusCode myAnalysis::initialize()
     myOutputTree->Branch("relativeIsolation", &myEventData.relativeIsolation);
     myOutputTree->Branch("relativeIsolationForLeptons", &myEventData.relativeIsolationForLeptons);
     myOutputTree->Branch("relativeIsolationForHadrons", &myEventData.relativeIsolationForHadrons);
+    
+    // За счет какой изолированой частицы событие было отброшено/не отброшено
+    myOutputTree->Branch("skippedByIsolatedLepton", &myEventData.skippedByIsolatedLepton);
+    myOutputTree->Branch("skippedByIsolatedHadron", &myEventData.skippedByIsolatedHadron);
 
     // Какие типы частиц были найдены
     myOutputTree->Branch("particleType", &myEventData.particleType);
@@ -236,10 +240,20 @@ StatusCode myAnalysis::execute()
         // Если частица изолирована (мало энергии/импульса в конусе вокруг неё)
         // И при этом она относится к одной из «нежелательных» категорий, то 
         // отбрасываем это событие
-        if (myApplyIsolationSelection.value()) // отбрасываем события, только если включен режим отбрасывания
+        //
+        // отбрасываем события, только если включен режим отбрасывания
+        if (myApplyIsolationSelection.value() && relIso < myIsolationThreshold.value())
         {
-            if (relIso < myIsolationThreshold.value() && (isLepton || isChargedHadron))
+            if (isLepton)
             {
+                // Запоминаем за счет какой частицы было пропущено событие
+                myEventData.skippedByIsolatedLepton = 1;
+                return StatusCode::SUCCESS;
+            }
+            else if (isChargedHadron)
+            {
+                // Запоминаем за счет какой частицы было пропущено событие
+                myEventData.skippedByIsolatedHadron = 1;
                 return StatusCode::SUCCESS;
             }
         }

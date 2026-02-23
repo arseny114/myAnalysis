@@ -49,6 +49,8 @@ public:
         invariantMassAllPFO = invariantMassJets = 0.0;
         recoilMassAllPFO = recoilMassJets = 0.0;
 
+        skippedByIsolatedLepton = skippedByIsolatedHadron = 0;
+
         numberJetsInEvent = 0;
     }
 
@@ -63,6 +65,9 @@ public:
     std::vector<double> relativeIsolation;
     std::vector<double> relativeIsolationForLeptons;
     std::vector<double> relativeIsolationForHadrons;
+
+    // За счет какой изолированой частицы событие было отброшено/не отброшено
+    int skippedByIsolatedLepton = 0, skippedByIsolatedHadron = 0;
 
     // Тип частицы (PFO) 
     std::vector<int> particleType;
