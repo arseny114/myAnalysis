@@ -102,8 +102,10 @@ StatusCode myAnalysis::initialize()
     myOutputTree->Branch("pfoTotalPy", &myEventData.pfoTotalPy);
     myOutputTree->Branch("pfoTotalPz", &myEventData.pfoTotalPz);
 
-    // Изоляция
+    // Относительная изоляция
     myOutputTree->Branch("relativeIsolation", &myEventData.relativeIsolation);
+    myOutputTree->Branch("relativeIsolationForLeptons", &myEventData.relativeIsolationForLeptons);
+    myOutputTree->Branch("relativeIsolationForHadrons", &myEventData.relativeIsolationForHadrons);
 
     // Какие типы частиц были найдены
     myOutputTree->Branch("particleType", &myEventData.particleType);
@@ -213,12 +215,12 @@ StatusCode myAnalysis::execute()
         );
 
         // Пропускаем частицы, для которых изоляция не вычислялась
-        if (myEventData.relativeIsolation[i] == -1.0) continue;
+        if (myEventData.relativeIsolation[i] < 0) continue;
 
         // Получаем тип частицы
-        int pfoType   = (*myPfoCollPtr)[i].getType();
+        int pfoType = (*myPfoCollPtr)[i].getType();
 
-        int absPfoType    = std::abs(pfoType);              // модуль типа
+        int absPfoType = std::abs(pfoType);                 // модуль типа
         double relIso = myEventData.relativeIsolation[i];   // ранее посчитанная изоляция
 
         // Классифицируем частицу по типу
@@ -236,7 +238,7 @@ StatusCode myAnalysis::execute()
         // отбрасываем это событие
         if (myApplyIsolationSelection.value()) // отбрасываем события, только если включен режим отбрасывания
         {
-            if (relIso > 0 && relIso < myIsolationThreshold.value() && (isLepton || isChargedHadron))
+            if (relIso < myIsolationThreshold.value() && (isLepton || isChargedHadron))
             {
                 return StatusCode::SUCCESS;
             }
@@ -382,6 +384,11 @@ bool myAnalysis::isInvalidPFO(const edm4hep::ReconstructedParticle& pfo) const
 void myAnalysis::calculateIsolationForPFO(const edm4hep::ReconstructedParticle& pfo,
                                           double deltaR)
 {
+    // Определяем тип частицы
+    int absPfoType = std::abs(pfo.getType());
+    bool isLepton = (absPfoType == 11 || absPfoType == 13);
+    bool isChargedHadron = (absPfoType == 2212 || absPfoType == 321 || absPfoType == 211);
+
     // Формируем четырёхимпульс рассматриваемой частицы
     TLorentzVector thisP4(
         pfo.getMomentum()[0], pfo.getMomentum()[1],
@@ -425,6 +432,12 @@ void myAnalysis::calculateIsolationForPFO(const edm4hep::ReconstructedParticle& 
     // Относительная изоляция = сумма импульсов в конусе / импульс центральной частицы
     // Значение сохраняется в вектор для последующей записи в дерево
     myEventData.relativeIsolation.push_back(sumP_inCone / thisP4.Pt());
+
+    // В зависимости от типа частицы заполняем коллекции
+    if (isLepton)
+      myEventData.relativeIsolationForLeptons.push_back(sumP_inCone / thisP4.Pt());
+    else if (isChargedHadron)
+      myEventData.relativeIsolationForHadrons.push_back(sumP_inCone / thisP4.Pt());
 }
 
 /**

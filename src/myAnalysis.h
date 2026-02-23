@@ -29,6 +29,8 @@ public:
     {
         pfoE.clear();   pfoPx.clear();   pfoPy.clear();   pfoPz.clear();
         relativeIsolation.clear();
+        relativeIsolationForLeptons.clear();
+        relativeIsolationForHadrons.clear();
 
         reconstructedJetConstituentsPfoIdx.clear();
         reconstructedJetPx.clear();
@@ -59,6 +61,8 @@ public:
 
     // Изоляция
     std::vector<double> relativeIsolation;
+    std::vector<double> relativeIsolationForLeptons;
+    std::vector<double> relativeIsolationForHadrons;
 
     // Тип частицы (PFO) 
     std::vector<int> particleType;
