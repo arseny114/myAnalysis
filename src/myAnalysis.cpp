@@ -128,6 +128,9 @@ StatusCode myAnalysis::initialize()
     myOutputTree->Branch("reconstructedJetE",  &myEventData.reconstructedJetE);
     myOutputTree->Branch("reconstructedJetThrust", &myEventData.reconstructedJetThrust);
 
+    // Было ли отброшено событие из-за условий на джеты
+    myOutputTree->Branch("skippedByJets", &myEventData.skippedByJets);
+
     // Физические величины, которые нас интересуют
     myOutputTree->Branch("invariantMassAllPFO", &myEventData.invariantMassAllPFO);
     myOutputTree->Branch("invariantMassJets", &myEventData.invariantMassJets);
@@ -248,12 +251,16 @@ StatusCode myAnalysis::execute()
             {
                 // Запоминаем за счет какой частицы было пропущено событие
                 myEventData.skippedByIsolatedLepton = 1;
+                myEventData.eventNumber++;
+                myOutputTree->Fill();
                 return StatusCode::SUCCESS;
             }
             else if (isChargedHadron)
             {
                 // Запоминаем за счет какой частицы было пропущено событие
                 myEventData.skippedByIsolatedHadron = 1;
+                myEventData.eventNumber++;
+                myOutputTree->Fill();
                 return StatusCode::SUCCESS;
             }
         }
@@ -279,6 +286,9 @@ StatusCode myAnalysis::execute()
             // Отсев, если нашлось не 2 джета (TODO: этот отсев нужно переделать)
             if (jets.size() != 2) 
             {
+                myEventData.skippedByJets = 1;
+                myEventData.eventNumber++;
+                myOutputTree->Fill();
                 return StatusCode::SUCCESS;
             }
         }
@@ -300,6 +310,9 @@ StatusCode myAnalysis::execute()
             // Отсев, если в размер джетов меньше требуемого
             if (jet.constituents().size() < myMinConstPerJet.value()) 
             {
+                myEventData.skippedByJets = 1;
+                myEventData.eventNumber++;
+                myOutputTree->Fill();
                 return StatusCode::SUCCESS;
             }
         }
@@ -353,7 +366,6 @@ StatusCode myAnalysis::execute()
     // Заполняем дерево и увеличиваем счётчик событий
     myEventData.eventNumber++;
     myOutputTree->Fill();
-
     return StatusCode::SUCCESS;
 }
 

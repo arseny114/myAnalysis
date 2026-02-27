@@ -49,7 +49,7 @@ public:
         invariantMassAllPFO = invariantMassJets = 0.0;
         recoilMassAllPFO = recoilMassJets = 0.0;
 
-        skippedByIsolatedLepton = skippedByIsolatedHadron = 0;
+        skippedByJets = skippedByIsolatedLepton = skippedByIsolatedHadron = 0;
 
         numberJetsInEvent = 0;
     }
@@ -78,6 +78,9 @@ public:
     std::vector<std::vector<int>>   reconstructedJetConstituentsPfoIdx;
     std::vector<double> reconstructedJetPx, reconstructedJetPy, reconstructedJetPz, reconstructedJetE;
     std::vector<double> reconstructedJetThrust;
+
+    // Было ли пропущено событие из-за условий на джеты
+    int skippedByJets = 0;
 
     // Количество PFO, которые входят в джет
     std::vector<int> jetSize;
