@@ -218,6 +218,10 @@ StatusCode myAnalysis::execute()
     myEventData.pfoTotalPy = totalPFO4Momentum.Py();
     myEventData.pfoTotalPz = totalPFO4Momentum.Pz();
 
+    // Проверяем, что событие не является ошибкой реконструкции
+    if (totalPFO4Momentum.M() > myCenterOfMassEnergy) // отбрасываем ошибки реконструкции (TODO: почему они возникли?)
+      return StatusCode::SUCCESS;
+
     // ── 2. Проверка на изолированные объекты ────────────────────────────
 
     // Проходим по всем сохранённым PFO (реконструированным частицам) события
@@ -334,8 +338,6 @@ StatusCode myAnalysis::execute()
 
     // ── 4. Расчёт инвариантных масс и масс отдачи ───────────────────────
     myEventData.invariantMassAllPFO = totalPFO4Momentum.M();
-    if (myEventData.invariantMassAllPFO > myCenterOfMassEnergy) // отбрасываем ошибки реконструкции (TODO: почему они возникли?)
-      return StatusCode::SUCCESS;
 
     // Создаём четырёхимпульсы ведущих джетов
     // Для invariantMassJets и recoilMassJets теперь суммируем все джеты
@@ -347,8 +349,6 @@ StatusCode myAnalysis::execute()
     // Инвариантная масса системы джетов (масса всех джетов вместе)
     // Это одна из ключевых наблюдаемых величин в анализе
     myEventData.invariantMassJets = summedJets.M();
-    if (myEventData.invariantMassJets > myCenterOfMassEnergy) // отбрасываем ошибки реконструкции
-          return StatusCode::SUCCESS;
 
     // Энергия в системе центра масс (обычно 240 ГэВ для CEPC при Z-фабрике)
     double sqrts = myCenterOfMassEnergy;
