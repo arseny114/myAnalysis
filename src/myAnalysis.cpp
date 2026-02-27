@@ -50,22 +50,33 @@ DECLARE_COMPONENT(myAnalysis)
 myAnalysis::myAnalysis(const std::string& name, ISvcLocator* pSvcLocator)
     : Algorithm(name, pSvcLocator)
 {
-    // Старые свойства
-    declareProperty("numberJets",              myNumberJets,              "Желаемое количество джетов");
-    declareProperty("isolationDeltaR",         myIsolationDeltaR,         "Радиус конуса для расчёта изоляции (ΔR)");
+    // =========================================================================
+    // Общие настройки
+    // =========================================================================
     declareProperty("outputRootFile",          myOutputFileName,          "Имя выходного ROOT-файла");
     declareProperty("centerOfMassEnergy",      myCenterOfMassEnergy,      "Полная энергия в системе центра масс (ГэВ)");
+    declareProperty("pfoEnergyMin",            myPfoEnergyMin,            "Минимальная энергия PFO для кластеризации джетов и расчета изоляции (GeV)");
 
-    // Новые свойства для ee_genkt_algorithm
+    // =========================================================================
+    // Настройки изоляции частиц
+    // =========================================================================
+    declareProperty("isolationDeltaR",         myIsolationDeltaR,         "Радиус конуса для расчёта изоляции (ΔR)");
+    declareProperty("minPtForIsolation",       myMinPtForIsolation,       "Минимальный поперечный импульс для расчёта изоляции (ГэВ)");
+    declareProperty("isolationThreshold",      myIsolationThreshold,      "Порог изоляции, ниже которого частица считается изолированной");
+
+    // =========================================================================
+    // Настройки кластеризации джетов
+    // =========================================================================
+    declareProperty("numberJets",              myNumberJets,              "Желаемое количество джетов");
+    declareProperty("useInclusive",            myUseInclusive,            "Использовать inclusive кластеризацию (true) или exclusive (false)");
     declareProperty("jetR",                    myJetR,                    "Радиус джета R для ee_genkt_algorithm");
     declareProperty("jetP",                    myJetP,                    "Параметр p для ee_genkt_algorithm (1 для kt-like)");
     declareProperty("jetPtMin",                myJetPtMin,                "Минимальный pT джета для inclusive режима (GeV)");
-    declareProperty("useInclusive",            myUseInclusive,            "Использовать inclusive кластеризацию (true) или exclusive (false)");
-    declareProperty("pfoEnergyMin",            myPfoEnergyMin,            "Минимальная энергия PFO для кластеризации джетов (GeV)");
-    declareProperty("minPtForIsolation",       myMinPtForIsolation,       "Минимальный поперечный импульс для расчёта изоляции (ГэВ)");
-    declareProperty("isolationThreshold",      myIsolationThreshold,      "Порог изоляции, ниже которого частица считается изолированной");
     declareProperty("minConstPerJet",          myMinConstPerJet,          "Минимальное количество частиц в джете для принятия события");
 
+    // =========================================================================
+    // Настройки отбора событий
+    // =========================================================================
     declareProperty("applyJetSelection",       myApplyJetSelection,       "Применять отбор по джетам (true) или сохранять все (false)");
     declareProperty("applyIsolationSelection", myApplyIsolationSelection, "Применять отбор по изоляции (true) или сохранять все (false)");
 }

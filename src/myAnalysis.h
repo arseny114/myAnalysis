@@ -105,24 +105,37 @@ public:
     StatusCode finalize()   override;
 
 private:
-    // Настраиваемые параметры
-    Gaudi::Property<int>         myNumberJets         {this, "numberJets",         2};
-    Gaudi::Property<double>      myIsolationDeltaR    {this, "isolationDeltaR",    0.4};
+    // Настройки по умолчанию
+    //
+    // =========================================================================
+    // Общие настройки
+    // =========================================================================
     Gaudi::Property<std::string> myOutputFileName     {this, "outputRootFile",     "analysis_output.root"};
     Gaudi::Property<double>      myCenterOfMassEnergy {this, "centerOfMassEnergy", 240.0};
+    Gaudi::Property<double>      myPfoEnergyMin       {this, "pfoEnergyMin",       0.5};
 
-    // Новые свойства для ee_genkt_algorithm
-    Gaudi::Property<double>      myJetR               {this, "jetR",               0.5};  // Радиус кластеризации R
-    Gaudi::Property<double>      myJetP               {this, "jetP",               1.0};  // Параметр p (1 для kt-like)
-    Gaudi::Property<double>      myJetPtMin           {this, "jetPtMin",           5.0};  // Для inclusive режима (GeV)
-    Gaudi::Property<bool>        myUseInclusive       {this, "useInclusive",       true}; // Флаг: true для inclusive, false для exclusive
-    Gaudi::Property<double>      myPfoEnergyMin       {this, "pfoEnergyMin",       0.5};  // Минимальная энергия PFO для джет кластеринга
-    Gaudi::Property<double>      myMinPtForIsolation  {this, "minPtForIsolation",  2.0};  // Минимальный Pt для расчёта изоляции (ГэВ)
-    Gaudi::Property<double>      myIsolationThreshold {this, "isolationThreshold", 0.1};  // Порог изоляции
-    Gaudi::Property<size_t>      myMinConstPerJet     {this, "minConstPerJet",     6};    // Минимальное количество частиц в джете
+    // =========================================================================
+    // Настройки изоляции частиц
+    // =========================================================================
+    Gaudi::Property<double>      myIsolationDeltaR    {this, "isolationDeltaR",    0.4};
+    Gaudi::Property<double>      myMinPtForIsolation  {this, "minPtForIsolation",  2.0};
+    Gaudi::Property<double>      myIsolationThreshold {this, "isolationThreshold", 0.1};
 
-    Gaudi::Property<bool>        myApplyJetSelection{this,   "applyJetSelection",  true}; // Включить отбор по джетам
-    Gaudi::Property<bool>        myApplyIsolationSelection{this, "applyIsolationSelection", true}; // Включить отбор по изоляции
+    // =========================================================================
+    // Настройки кластеризации джетов
+    // =========================================================================
+    Gaudi::Property<int>         myNumberJets         {this, "numberJets",         2};
+    Gaudi::Property<bool>        myUseInclusive       {this, "useInclusive",       true};
+    Gaudi::Property<double>      myJetR               {this, "jetR",               0.5};
+    Gaudi::Property<double>      myJetP               {this, "jetP",               1.0};
+    Gaudi::Property<double>      myJetPtMin           {this, "jetPtMin",           5.0};
+    Gaudi::Property<size_t>      myMinConstPerJet     {this, "minConstPerJet",     6};
+
+    // =========================================================================
+    // Настройки отбора событий
+    // =========================================================================
+    Gaudi::Property<bool>        myApplyJetSelection  {this, "applyJetSelection",  true};
+    Gaudi::Property<bool>        myApplyIsolationSelection{this, "applyIsolationSelection", true};
 
     // Данные текущего события
     EventData myEventData;
