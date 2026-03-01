@@ -150,6 +150,8 @@ private:
 
     // Вспомогательные функции
     bool isInvalidPFO(const edm4hep::ReconstructedParticle& pfo) const;
+    bool pfoIsLepton(const edm4hep::ReconstructedParticle& pfo) const;
+    bool pfoIsChargedHadron(const edm4hep::ReconstructedParticle& pfo) const;
 
     void calculateIsolationForPFO(const edm4hep::ReconstructedParticle& pfo, double deltaR);
 
