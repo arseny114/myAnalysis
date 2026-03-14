@@ -202,6 +202,11 @@ StatusCode myAnalysis::execute() {
         myEventData.pfoPy.push_back(pfo.getMomentum()[1]);
         myEventData.pfoPz.push_back(pfo.getMomentum()[2]);
 
+        // Записываем тип частицы
+        myEventData.particleType.push_back(pfo.getType());
+        myEventData.isLepton.push_back(pfoIsLepton(pfo) ? 1 : 0);
+        myEventData.isChargedHadron.push_back(pfoIsChargedHadron(pfo) ? 1 : 0);
+
         // Суммируем полный четырёхимпульс события
         totalPFO4Momentum += TLorentzVector(pfo.getMomentum()[0], pfo.getMomentum()[1],
                                             pfo.getMomentum()[2], pfo.getEnergy());
@@ -230,11 +235,6 @@ StatusCode myAnalysis::execute() {
             myEventData.leptonConeEnergy.push_back(-1.0);
             myEventData.isIsolatedLeptonFlag.push_back(0);
         }
-
-        // Записываем тип частицы
-        myEventData.particleType.push_back(pfo.getType());
-        myEventData.isLepton.push_back(pfoIsLepton(pfo) ? 1 : 0);
-        myEventData.isChargedHadron.push_back(pfoIsChargedHadron(pfo) ? 1 : 0);
     }
 
     // Сохраняем суммарный четырёхимпульс всех PFO в событии
