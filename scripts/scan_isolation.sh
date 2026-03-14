@@ -1,22 +1,25 @@
 #!/usr/bin/env bash
 #
 # =============================================================================
-# Скрипт для сканирования параметров isolationDeltaR и isolationThreshold 
-# в анализе myAnalysis
+# Скрипт для сканирования параметров cosConeAngle и isoMaxConeEnergy 
+# в анализе myAnalysis (ILC-style изоляция по энергии в конусе)
 # =============================================================================
 #
 # Назначение:
-#   - Запускает анализ myAnalysis с разными значениями isolationDeltaR и isolationThreshold
-#   - Для каждого значения DeltaR создаётся отдельная папка
-#   - Внутри папки DeltaR сохраняются файлы для всех значений Threshold
+#   - Запускает анализ myAnalysis с разными значениями cosConeAngle и isoMaxConeEnergy
+#   - Для каждого значения cosConeAngle создаётся отдельная папка
+#   - Внутри папки сохраняются файлы для всех значений isoMaxConeEnergy
 #   - Для каждого сочетания: создаёт задания, ждёт завершения, объединяет результаты
+#   - Поддерживает фоновое выполнение (работает после отключения от SSH)
+#   - Ведёт логирование в указанный файл
 #
 # Использование:
 #   ./scan_isolation.sh -p PROCESS_NAME -r RECO_DIR [OPTIONS]
 #
 # Примеры:
 #   ./scan_isolation.sh -p E240_qqHinvi -r /cefs/higgs/.../E240_qqHinvi/Reco
-#   ./scan_isolation.sh -p E240_qqHinvi -r /path/to/reco -d "0.3,0.4,0.5" -t "0.1,0.5,1.0,2.0"
+#   ./scan_isolation.sh -p E240_qqHinvi -r /path/to/reco -c "0.95,0.98,0.995" -e "1.0,2.0,5.0"
+#   ./scan_isolation.sh -p E240_qqHinvi -r /path/to/reco -b -l /path/to/scan.log
 #
 # =============================================================================
 
@@ -25,7 +28,14 @@
 # ──────────────────────────────────────────────────────────────────────────────
 show_help() {
   cat << EOF
-Скрипт для сканирования параметров isolationDeltaR и isolationThreshold в анализе myAnalysis
+Скрипт для сканирования параметров изоляции (ILC-style) в анализе myAnalysis
+
+Сканируемые параметры:
+  • cosConeAngle      — косинус полу-угла конуса изоляции (cosθ ≥ cosConeAngle)
+                        Пример: 0.98 ≈ угол 11.5°, 0.995 ≈ 5.7°
+  • isoMaxConeEnergy  — максимальная энергия в конусе вокруг лептона (ГэВ)
+                        Если энергия в конусе > порога, лептон НЕ считается изолированным
+
 Использование:
 $(basename "$0") -p PROCESS_NAME -r RECO_DIR [OPTIONS]
 
@@ -34,15 +44,15 @@ $(basename "$0") -p PROCESS_NAME -r RECO_DIR [OPTIONS]
   -r, --reco-dir        Путь к директории с файлами реконструкции
 
 Опциональные параметры:
-  -d, --delta-r         Список значений isolationDeltaR через запятую
-                        (по умолчанию: 0.3,0.4,0.5)
-  -t, --thresholds      Список значений isolationThreshold через запятую
-                        (по умолчанию: 0.1,0.2,0.5,1.0,2.0,5.0)
+  -c, --cos-cone        Список значений cosConeAngle через запятую
+                        (по умолчанию: 0.95,0.98,0.995)
+  -e, --cone-energy     Список значений isoMaxConeEnergy через запятую (ГэВ)
+                        (по умолчанию: 1.0,2.0,5.0)
   -n, --num-files       Количество файлов для обработки за один запуск
                         (по умолчанию: 100)
   -o, --analysis-root   Корневая директория анализа
                         (по умолчанию: /cefs/higgs/kositsin/CEPCSW-tutorial/Analysis/myAnalysis)
-  -c, --cepcsw-root     Путь к установленному CEPCSW
+  --cepcsw-root         Путь к установленному CEPCSW
                         (по умолчанию: /cefs/higgs/kositsin/CEPCSW-tutorial)
   -g, --group           Группа для hep_sub
                         (по умолчанию: higgs)
@@ -50,14 +60,16 @@ $(basename "$0") -p PROCESS_NAME -r RECO_DIR [OPTIONS]
                         (по умолчанию: 6000)
   -k, --keep-temp       Не удалять временные файлы результатов после объединения
                         (по умолчанию: удалять)
+  -b, --background      Запустить скрипт в фоновом режиме (работает после отключения SSH)
+  -l, --log-file        Путь к файлу лога (по умолчанию: scan_<process>_<timestamp>.log в ANALYSIS_ROOT)
   -h, --help            Показать эту справку
 
 Примеры:
-  # Запуск сканирования с параметрами по умолчанию
+  # Запуск сканирования с параметрами по умолчанию (в интерактивном режиме)
   $(basename "$0") -p E240_qqHinvi -r /cefs/higgs/.../E240_qqHinvi/Reco
 
-  # Запуск с custom значениями DeltaR и Threshold
-  $(basename "$0") -p E240_qqHinvi -r /path/to/reco -d "0.3,0.4,0.5" -t "0.1,0.5,1.0,2.0"
+  # Запуск с кастомными значениями в фоновом режиме с логированием
+  $(basename "$0") -p E240_qqHinvi -r /path/to/reco -c "0.97,0.99" -e "0.5,1.0,3.0" -b -l /path/to/scan.log
 
   # Запуск без удаления временных файлов (для отладки)
   $(basename "$0") -p E240_qqHinvi -r /path/to/reco -k
@@ -71,12 +83,14 @@ ANALYSIS_ROOT="/cefs/higgs/kositsin/CEPCSW-tutorial/Analysis/myAnalysis"
 CEPCSW_ROOT="/cefs/higgs/kositsin/CEPCSW-tutorial"
 PROCESS_NAME=""
 RECO_DIR=""
-DELTA_R_VALUES="0.3,0.4,0.5"
-THRESHOLDS="0.1,0.2,0.5,1.0,2.0,5.0"
+COS_CONE_VALUES="0.95,0.98,0.995"
+CONE_ENERGY_VALUES="1.0,2.0,5.0"
 NUM_FILES=100
 HEP_GROUP="higgs"
 MEMORY_MB=6000
 KEEP_TEMP=0
+RUN_BACKGROUND=0
+LOG_FILE=""
 
 # ──────────────────────────────────────────────────────────────────────────────
 #          Парсинг аргументов командной строки
@@ -91,12 +105,12 @@ while [[ $# -gt 0 ]]; do
       RECO_DIR="$2"
       shift 2
       ;;
-    -d|--delta-r)
-      DELTA_R_VALUES="$2"
+    -c|--cos-cone)
+      COS_CONE_VALUES="$2"
       shift 2
       ;;
-    -t|--thresholds)
-      THRESHOLDS="$2"
+    -e|--cone-energy)
+      CONE_ENERGY_VALUES="$2"
       shift 2
       ;;
     -n|--num-files)
@@ -107,7 +121,7 @@ while [[ $# -gt 0 ]]; do
       ANALYSIS_ROOT="$2"
       shift 2
       ;;
-    -c|--cepcsw-root)
+    --cepcsw-root)
       CEPCSW_ROOT="$2"
       shift 2
       ;;
@@ -122,6 +136,14 @@ while [[ $# -gt 0 ]]; do
     -k|--keep-temp)
       KEEP_TEMP=1
       shift 1
+      ;;
+    -b|--background)
+      RUN_BACKGROUND=1
+      shift 1
+      ;;
+    -l|--log-file)
+      LOG_FILE="$2"
+      shift 2
       ;;
     -h|--help)
       show_help
@@ -163,6 +185,89 @@ if [ ! -f "$TEMPLATE_FILE" ]; then
 fi
 
 # ──────────────────────────────────────────────────────────────────────────────
+#          Обработка фонового режима и логирования
+# ──────────────────────────────────────────────────────────────────────────────
+
+# Если запрошен фоновый режим и мы ещё не в нём — пере-запускаем скрипт через nohup
+if [ "$RUN_BACKGROUND" -eq 1 ] && [ -z "$_RUNNING_IN_BACKGROUND" ]; then
+  # Устанавливаем путь к лог-файлу по умолчанию, если не указан
+  if [ -z "$LOG_FILE" ]; then
+    TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+    LOG_FILE="${ANALYSIS_ROOT}/logs/scan_${PROCESS_NAME}_${TIMESTAMP}.log"
+  fi
+  
+  # Создаём директорию для лога, если нужно
+  LOG_DIR=$(dirname "$LOG_FILE")
+  mkdir -p "$LOG_DIR" 2>/dev/null || {
+    echo "Ошибка: не удалось создать директорию для лога: $LOG_DIR" >&2
+    exit 1
+  }
+  
+  echo "Запуск в фоновом режиме..."
+  echo "Лог будет записываться в: $LOG_FILE"
+  
+  # Собираем все аргументы для пере-запуска (без флага -b, чтобы избежать рекурсии)
+  REEXEC_ARGS=()
+  while [[ $# -gt 0 ]]; do
+    case $1 in
+      -b|--background)
+        shift $([ "$2" ] && [[ "$2" != -* ]] && echo 2 || echo 1)
+        ;;
+      -l|--log-file)
+        shift 2
+        ;;
+      *)
+        REEXEC_ARGS+=("$1")
+        shift
+        ;;
+    esac
+  done
+  
+  # Пере-запускаем скрипт через nohup в фоне
+  nohup "$0" "${REEXEC_ARGS[@]}" --cepcsw-root "$CEPCSW_ROOT" \
+    > "$LOG_FILE" 2>&1 &
+  
+  BG_PID=$!
+  echo "Скрипт запущен в фоне с PID: $BG_PID"
+  echo "Для просмотра лога в реальном времени: tail -f $LOG_FILE"
+  echo "Для проверки статуса процесса: ps -p $BG_PID"
+  echo "Для остановки: kill $BG_PID"
+  
+  # Сохраняем PID в файл для удобства
+  PID_FILE="${LOG_FILE%.log}.pid"
+  echo "$BG_PID" > "$PID_FILE"
+  echo "PID сохранён в: $PID_FILE"
+  
+  exit 0
+fi
+
+# Если мы уже в фоновом режиме — помечаем это переменной
+if [ "$RUN_BACKGROUND" -eq 1 ]; then
+  export _RUNNING_IN_BACKGROUND=1
+fi
+
+# Устанавливаем лог-файл по умолчанию, если не указан и не в фоне
+if [ -z "$LOG_FILE" ]; then
+  if [ "$RUN_BACKGROUND" -eq 1 ]; then
+    TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+    LOG_FILE="${ANALYSIS_ROOT}/logs/scan_${PROCESS_NAME}_${TIMESTAMP}.log"
+  else
+    # В интерактивном режиме выводим в stdout, но дублируем в лог
+    TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+    LOG_FILE="${ANALYSIS_ROOT}/logs/scan_${PROCESS_NAME}_${TIMESTAMP}.log"
+  fi
+fi
+
+# Создаём директорию для лога
+LOG_DIR=$(dirname "$LOG_FILE")
+mkdir -p "$LOG_DIR" 2>/dev/null
+
+# Если не в фоне и лог указан — дублируем вывод в лог через tee
+if [ "$RUN_BACKGROUND" -eq 0 ] && [ -n "$LOG_FILE" ]; then
+  exec > >(tee -a "$LOG_FILE") 2>&1
+fi
+
+# ──────────────────────────────────────────────────────────────────────────────
 #          Внутренние переменные
 # ──────────────────────────────────────────────────────────────────────────────
 SCRIPT_DIR="${ANALYSIS_ROOT}/scripts"
@@ -181,57 +286,58 @@ mkdir -p "$SCAN_ROOT_DIR" || {
 #          Вспомогательные функции
 # ──────────────────────────────────────────────────────────────────────────────
 
+# Функция логирования с временной меткой
+log_msg() {
+  local level="$1"
+  shift
+  local msg="$*"
+  local timestamp=$(date '+%Y-%m-%d %H:%M:%S')
+  echo "[$timestamp] [$level] $msg"
+}
+
 # Функция ожидания завершения всех заданий пользователя
 wait_for_jobs() {
   local process_name="$1"
-  echo "Ожидание завершения заданий для процесса ${process_name}..."
+  log_msg "INFO" "Ожидание завершения заданий для процесса ${process_name}..."
   while true; do
-    # Получаем ПОСЛЕДНЮЮ строку вывода hep_q -u (сводка)
     local queue_summary
     queue_summary=$(hep_q -u 2>/dev/null | tail -n 1)
     
-    # Если вывод пустой или не содержит "jobs", считаем что заданий нет
     if [ -z "$queue_summary" ] || ! echo "$queue_summary" | grep -q "jobs"; then
-      echo "Все задания завершены."
+      log_msg "INFO" "Все задания завершены."
       return 0
     fi
     
-    # Извлекаем общее число заданий из начала строки (число перед "jobs")
     local job_count
     job_count=$(echo "$queue_summary" | grep -oE '^[0-9]+' | head -n 1)
     job_count=${job_count:-0}
     
-    # Если заданий нет — выходим
     if [ "$job_count" -eq 0 ]; then
-      echo "Все задания завершены."
+      log_msg "INFO" "Все задания завершены."
       return 0
     fi
     
-    echo "  Осталось заданий: ${job_count}... Проверка через 30 секунд."
+    log_msg "INFO" "  Осталось заданий: ${job_count}... Проверка через 30 секунд."
     sleep 30
   done
 }
 
-# Функция обновления значения isolationDeltaR в шаблоне
-update_deltaR_in_template() {
-  local delta_r="$1"
+# Функция обновления значения cosConeAngle в шаблоне
+update_cosConeAngle_in_template() {
+  local cos_val="$1"
   local temp_template="${TEMPLATE_FILE}.tmp"
-  # Заменяем значение после знака '=', игнорируя пробелы и комментарии после числа
-  sed "s/\(myAnalysis\.isolationDeltaR[[:space:]]*=[[:space:]]*\)[0-9.]\+/\1${delta_r}/" \
+  sed "s/\(myAnalysis\.cosConeAngle[[:space:]]*=[[:space:]]*\)[0-9.]\+/\1${cos_val}/" \
     "$TEMPLATE_FILE" > "$temp_template" || return 1
-  # Атомарная замена оригинала
   mv "$temp_template" "$TEMPLATE_FILE" || return 1
   return 0
 }
 
-# Функция обновления значения isolationThreshold в шаблоне
-update_threshold_in_template() {
-  local threshold="$1"
+# Функция обновления значения isoMaxConeEnergy в шаблоне
+update_coneEnergy_in_template() {
+  local energy_val="$1"
   local temp_template="${TEMPLATE_FILE}.tmp"
-  # Заменяем значение после знака '=', игнорируя пробелы и комментарии после числа
-  sed "s/\(myAnalysis\.isolationThreshold[[:space:]]*=[[:space:]]*\)[0-9.]\+/\1${threshold}/" \
+  sed "s/\(myAnalysis\.isoMaxConeEnergy[[:space:]]*=[[:space:]]*\)[0-9.]\+/\1${energy_val}/" \
     "$TEMPLATE_FILE" > "$temp_template" || return 1
-  # Атомарная замена оригинала
   mv "$temp_template" "$TEMPLATE_FILE" || return 1
   return 0
 }
@@ -239,9 +345,8 @@ update_threshold_in_template() {
 # Функция восстановления исходных значений в шаблоне
 restore_template_defaults() {
   local temp_template="${TEMPLATE_FILE}.tmp"
-  # Восстанавливаем default значения (0.4 для DeltaR, 2.0 для Threshold)
-  sed -e "s/\(myAnalysis\.isolationDeltaR[[:space:]]*=[[:space:]]*\)[0-9.]\+/\10.4/" \
-      -e "s/\(myAnalysis\.isolationThreshold[[:space:]]*=[[:space:]]*\)[0-9.]\+/\12.0/" \
+  sed -e "s/\(myAnalysis\.cosConeAngle[[:space:]]*=[[:space:]]*\)[0-9.]\+/\10.98/" \
+      -e "s/\(myAnalysis\.isoMaxConeEnergy[[:space:]]*=[[:space:]]*\)[0-9.]\+/\12.0/" \
       "$TEMPLATE_FILE" > "$temp_template" || return 1
   mv "$temp_template" "$TEMPLATE_FILE" || return 1
   return 0
@@ -250,76 +355,78 @@ restore_template_defaults() {
 # ──────────────────────────────────────────────────────────────────────────────
 #          Основной цикл сканирования
 # ──────────────────────────────────────────────────────────────────────────────
-echo "======================================================================"
-echo "Запуск двойного сканирования параметров изоляции"
-echo "======================================================================"
-echo
-echo "Параметры сканирования:"
-echo "  Процесс:          ${PROCESS_NAME}"
-echo "  Директория RECO:  ${RECO_DIR}"
-echo "  Директория анализа: ${ANALYSIS_ROOT}"
-echo "  Значения DeltaR:  ${DELTA_R_VALUES}"
-echo "  Значения Threshold: ${THRESHOLDS}"
-echo "  Файлов за запуск: ${NUM_FILES}"
-echo
-echo "Результаты будут сохранены в: ${SCAN_ROOT_DIR}"
-echo "======================================================================"
-echo
+log_msg "INFO" "======================================================================"
+log_msg "INFO" "Запуск двойного сканирования параметров изоляции (ILC-style)"
+log_msg "INFO" "======================================================================"
+log_msg "INFO" ""
+log_msg "INFO" "Параметры сканирования:"
+log_msg "INFO" "  Процесс:          ${PROCESS_NAME}"
+log_msg "INFO" "  Директория RECO:  ${RECO_DIR}"
+log_msg "INFO" "  Директория анализа: ${ANALYSIS_ROOT}"
+log_msg "INFO" "  Значения cosConeAngle:  ${COS_CONE_VALUES}"
+log_msg "INFO" "  Значения isoMaxConeEnergy: ${CONE_ENERGY_VALUES} ГэВ"
+log_msg "INFO" "  Файлов за запуск: ${NUM_FILES}"
+log_msg "INFO" "  Фоновый режим:    $([ "$RUN_BACKGROUND" -eq 1 ] && echo 'Да' || echo 'Нет')"
+log_msg "INFO" "  Лог-файл:         ${LOG_FILE}"
+log_msg "INFO" ""
+log_msg "INFO" "Результаты будут сохранены в: ${SCAN_ROOT_DIR}"
+log_msg "INFO" "======================================================================"
+log_msg "INFO" ""
 
 # Преобразуем строки значений в массивы
-IFS=',' read -ra DELTA_R_ARRAY <<< "$DELTA_R_VALUES"
-IFS=',' read -ra THRESHOLD_ARRAY <<< "$THRESHOLDS"
+IFS=',' read -ra COS_CONE_ARRAY <<< "$COS_CONE_VALUES"
+IFS=',' read -ra CONE_ENERGY_ARRAY <<< "$CONE_ENERGY_VALUES"
 
-total_combinations=$((${#DELTA_R_ARRAY[@]} * ${#THRESHOLD_ARRAY[@]}))
+total_combinations=$((${#COS_CONE_ARRAY[@]} * ${#CONE_ENERGY_ARRAY[@]}))
 combination_counter=0
 successful_combinations=0
 
-# Внешний цикл по isolationDeltaR
-deltaR_counter=0
-for delta_r in "${DELTA_R_ARRAY[@]}"; do
-  deltaR_counter=$((deltaR_counter + 1))
-  echo ""
-  echo "======================================================================"
-  echo "[DeltaR ${deltaR_counter}/${#DELTA_R_ARRAY[@]}] Обработка isolationDeltaR = ${delta_r}"
-  echo "======================================================================"
-  echo
+# Внешний цикл по cosConeAngle
+cos_counter=0
+for cos_val in "${COS_CONE_ARRAY[@]}"; do
+  cos_counter=$((cos_counter + 1))
+  angle_deg=$(python3 -c "import math; print(f'{math.degrees(math.acos(${cos_val})):.1f}')" 2>/dev/null || echo "?")
   
-  # Создаём директорию для этого значения DeltaR
-  DELTA_R_DIR="${SCAN_ROOT_DIR}/deltaR_${delta_r}"
-  mkdir -p "$DELTA_R_DIR" || {
-    echo "Ошибка: не удалось создать директорию ${DELTA_R_DIR}"
+  log_msg "INFO" ""
+  log_msg "INFO" "======================================================================"
+  log_msg "INFO" "[cosConeAngle ${cos_counter}/${#COS_CONE_ARRAY[@]}] Обработка cosConeAngle = ${cos_val} (~${angle_deg}°)"
+  log_msg "INFO" "======================================================================"
+  log_msg "INFO" ""
+  
+  COS_DIR="${SCAN_ROOT_DIR}/cosCone_${cos_val}"
+  mkdir -p "$COS_DIR" || {
+    log_msg "ERROR" "Не удалось создать директорию ${COS_DIR}"
     continue
   }
-  echo "Директория для результатов: ${DELTA_R_DIR}"
-  echo
+  log_msg "INFO" "Директория для результатов: ${COS_DIR}"
+  log_msg "INFO" ""
   
-  # Внутренний цикл по isolationThreshold
-  threshold_counter=0
-  for threshold in "${THRESHOLD_ARRAY[@]}"; do
-    threshold_counter=$((threshold_counter + 1))
+  # Внутренний цикл по isoMaxConeEnergy
+  energy_counter=0
+  for cone_energy in "${CONE_ENERGY_ARRAY[@]}"; do
+    energy_counter=$((energy_counter + 1))
     combination_counter=$((combination_counter + 1))
-    echo "──────────────────────────────────────────────────────────────────────"
-    echo "[${combination_counter}/${total_combinations}] DeltaR=${delta_r}, Threshold=${threshold}"
-    echo "──────────────────────────────────────────────────────────────────────"
-    echo
+    log_msg "INFO" "──────────────────────────────────────────────────────────────────────"
+    log_msg "INFO" "[${combination_counter}/${total_combinations}] cosConeAngle=${cos_val}, isoMaxConeEnergy=${cone_energy} ГэВ"
+    log_msg "INFO" "──────────────────────────────────────────────────────────────────────"
+    log_msg "INFO" ""
     
-    # 1. Обновляем шаблон конфигурации с новыми значениями параметров
-    echo "Шаг 1: Обновление шаблона конфигурации..."
-    if ! update_deltaR_in_template "$delta_r"; then
-      echo "Ошибка: не удалось обновить значение isolationDeltaR в ${TEMPLATE_FILE}"
+    # 1. Обновляем шаблон конфигурации
+    log_msg "INFO" "Шаг 1: Обновление шаблона конфигурации..."
+    if ! update_cosConeAngle_in_template "$cos_val"; then
+      log_msg "ERROR" "Не удалось обновить значение cosConeAngle в ${TEMPLATE_FILE}"
       continue
     fi
-    if ! update_threshold_in_template "$threshold"; then
-      echo "Ошибка: не удалось обновить значение isolationThreshold в ${TEMPLATE_FILE}"
-      # Восстанавливаем DeltaR перед продолжением
-      update_deltaR_in_template "${DELTA_R_ARRAY[0]}"
+    if ! update_coneEnergy_in_template "$cone_energy"; then
+      log_msg "ERROR" "Не удалось обновить значение isoMaxConeEnergy в ${TEMPLATE_FILE}"
+      update_cosConeAngle_in_template "${COS_CONE_ARRAY[0]}"
       continue
     fi
-    echo "  Шаблон обновлён: isolationDeltaR = ${delta_r}, isolationThreshold = ${threshold}"
-    echo
+    log_msg "INFO" "  Шаблон обновлён: cosConeAngle = ${cos_val}, isoMaxConeEnergy = ${cone_energy} ГэВ"
+    log_msg "INFO" ""
     
-    # 2. Запускаем создание и подачу заданий на кластер
-    echo "Шаг 2: Запуск ${NUM_FILES} заданий на кластере..."
+    # 2. Запускаем создание заданий на кластер
+    log_msg "INFO" "Шаг 2: Запуск ${NUM_FILES} заданий на кластере..."
     "${SCRIPT_DIR}/create_jobs.sh" \
       -p "${PROCESS_NAME}" \
       -r "${RECO_DIR}" \
@@ -330,76 +437,71 @@ for delta_r in "${DELTA_R_ARRAY[@]}"; do
       -m "${MEMORY_MB}" \
       -s 1
     if [ $? -ne 0 ]; then
-      echo "Ошибка: create_jobs.sh завершился с ошибкой"
+      log_msg "ERROR" "create_jobs.sh завершился с ошибкой"
       continue
     fi
-    echo
+    log_msg "INFO" ""
     
     # 3. Ожидаем завершения всех заданий
-    echo "Шаг 3: Ожидание завершения заданий..."
+    log_msg "INFO" "Шаг 3: Ожидание завершения заданий..."
     wait_for_jobs "${PROCESS_NAME}"
-    echo
+    log_msg "INFO" ""
     
     # 4. Объединяем результаты
-    echo "Шаг 4: Объединение результатов..."
-    # Объединяем в стандартное место
+    log_msg "INFO" "Шаг 4: Объединение результатов..."
     "${SCRIPT_DIR}/merge_results.sh" -p "${PROCESS_NAME}" -o "${ANALYSIS_ROOT}" || {
-      echo "Ошибка: не удалось объединить результаты для DeltaR=${delta_r}, Threshold=${threshold}"
+      log_msg "ERROR" "Не удалось объединить результаты для cosConeAngle=${cos_val}, isoMaxConeEnergy=${cone_energy}"
       continue
     }
     
-    # Формируем имя файла с обоими параметрами
-    MERGED_BASE="merged_${PROCESS_NAME}_deltaR${delta_r}_iso${threshold}.root"
-    MERGED_PATH="${DELTA_R_DIR}/${MERGED_BASE}"
+    MERGED_BASE="merged_${PROCESS_NAME}_cos${cos_val}_coneE${cone_energy}GeV.root"
+    MERGED_PATH="${COS_DIR}/${MERGED_BASE}"
     
-    # Перемещаем объединённый файл в папку DeltaR
     if [ -f "${ANALYSIS_ROOT}/merged_${PROCESS_NAME}.root" ]; then
       mv "${ANALYSIS_ROOT}/merged_${PROCESS_NAME}.root" "$MERGED_PATH"
-      echo "  Объединённый файл: ${MERGED_PATH}"
+      log_msg "INFO" "  Объединённый файл: ${MERGED_PATH}"
       successful_combinations=$((successful_combinations + 1))
     else
-      echo "Ошибка: файл ${ANALYSIS_ROOT}/merged_${PROCESS_NAME}.root не найден после merge"
+      log_msg "ERROR" "Файл ${ANALYSIS_ROOT}/merged_${PROCESS_NAME}.root не найден после merge"
       continue
     fi
-    echo
+    log_msg "INFO" ""
     
-    # 5. Очищаем временные результаты (если не указано --keep-temp)
+    # 5. Очищаем временные результаты
     if [ "$KEEP_TEMP" -eq 0 ]; then
-      echo "Шаг 5: Очистка временных файлов..."
+      log_msg "INFO" "Шаг 5: Очистка временных файлов..."
       RESULTS_DIR="${ANALYSIS_ROOT}/results/${PROCESS_NAME}"
       rm -f "${RESULTS_DIR}"/ana_"${PROCESS_NAME}"_*.root 2>/dev/null
-      echo "  Временные файлы удалены"
+      log_msg "INFO" "  Временные файлы удалены"
     else
-      echo "Шаг 5: Пропуск очистки (--keep-temp указан)"
+      log_msg "INFO" "Шаг 5: Пропуск очистки (--keep-temp указан)"
     fi
-    echo
+    log_msg "INFO" ""
   done
-  # Конец внутреннего цикла по Threshold
   
-  echo "Завершена обработка всех Threshold для DeltaR = ${delta_r}"
-  echo "Файлы сохранены в: ${DELTA_R_DIR}"
-  ls -lh "${DELTA_R_DIR}"/*.root 2>/dev/null || echo "  (файлы не найдены)"
-  echo
+  log_msg "INFO" "Завершена обработка всех isoMaxConeEnergy для cosConeAngle = ${cos_val}"
+  log_msg "INFO" "Файлы сохранены в: ${COS_DIR}"
+  ls -lh "${COS_DIR}"/*.root 2>/dev/null || log_msg "WARN" "  (файлы не найдены)"
+  log_msg "INFO" ""
 done
-# Конец внешнего цикла по DeltaR
 
 # ──────────────────────────────────────────────────────────────────────────────
 #          Восстановление шаблона и итоговая информация
 # ──────────────────────────────────────────────────────────────────────────────
-echo "======================================================================"
-echo "Восстановление шаблона конфигурации..."
+log_msg "INFO" "======================================================================"
+log_msg "INFO" "Восстановление шаблона конфигурации..."
 restore_template_defaults
-echo "Шаблон восстановлен к значениям по умолчанию"
-echo "======================================================================"
-echo
+log_msg "INFO" "Шаблон восстановлен к значениям по умолчанию"
+log_msg "INFO" "======================================================================"
+log_msg "INFO" ""
 
-echo "======================================================================"
-echo "Сканирование завершено!"
-echo "======================================================================"
-echo
-echo "Обработано комбинаций параметров: ${combination_counter} из ${total_combinations}"
-echo "Успешно завершено: ${successful_combinations}"
-echo
-echo "Объединённые файлы:"
-find "${SCAN_ROOT_DIR}" -name "merged_*.root" -type f -exec ls -lh {} \; 2>/dev/null || echo "  (файлы не найдены)"
-echo "======================================================================"
+log_msg "INFO" "======================================================================"
+log_msg "INFO" "Сканирование завершено!"
+log_msg "INFO" "======================================================================"
+log_msg "INFO" ""
+log_msg "INFO" "Обработано комбинаций параметров: ${combination_counter} из ${total_combinations}"
+log_msg "INFO" "Успешно завершено: ${successful_combinations}"
+log_msg "INFO" ""
+log_msg "INFO" "Объединённые файлы:"
+find "${SCAN_ROOT_DIR}" -name "merged_*.root" -type f -exec ls -lh {} \; 2>/dev/null || log_msg "WARN" "  (файлы не найдены)"
+log_msg "INFO" "======================================================================"

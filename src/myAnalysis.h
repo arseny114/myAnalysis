@@ -29,9 +29,8 @@ public:
         pfoPx.clear();
         pfoPy.clear();
         pfoPz.clear();
-        relativeIsolation.clear();
-        relativeIsolationForLeptons.clear();
-        relativeIsolationForHadrons.clear();
+        leptonConeEnergy.clear();
+        isIsolatedLeptonFlag.clear();
 
         reconstructedJetConstituentsPfoIdx.clear();
         reconstructedJetPx.clear();
@@ -50,7 +49,7 @@ public:
         invariantMassAllPFO = invariantMassJets = 0.0;
         recoilMassAllPFO = recoilMassJets = 0.0;
 
-        skippedByJets = skippedByIsolatedLepton = skippedByIsolatedHadron = 0;
+        skippedByJets = skippedByIsolatedLepton = 0;
 
         numberJetsInEvent = 0;
     }
@@ -62,13 +61,12 @@ public:
     std::vector<double> pfoE, pfoPx, pfoPy, pfoPz;
     double pfoTotalE = 0, pfoTotalPx = 0, pfoTotalPy = 0, pfoTotalPz = 0;
 
-    // Изоляция
-    std::vector<double> relativeIsolation;
-    std::vector<double> relativeIsolationForLeptons;
-    std::vector<double> relativeIsolationForHadrons;
+    // Изоляция лептонов (ветки для отладки)
+    std::vector<double> leptonConeEnergy;  // Энергия в конусе для лептонов
+    std::vector<int> isIsolatedLeptonFlag; // Флаг: 1 = лептон изолирован
 
-    // За счет какой изолированой частицы событие было отброшено/не отброшено
-    int skippedByIsolatedLepton = 0, skippedByIsolatedHadron = 0;
+    // Было ли пропущено событие из-за изоляции
+    int skippedByIsolatedLepton = 0;
 
     // Тип частицы (PFO)
     std::vector<int> particleType;
@@ -116,11 +114,20 @@ private:
     Gaudi::Property<double> myPfoEnergyMin{this, "pfoEnergyMin", 0.5};
 
     // =========================================================================
-    // Настройки изоляции частиц
+    // Настройки изоляции лептонов (ILC-style, по энергии в конусе)
     // =========================================================================
-    Gaudi::Property<double> myIsolationDeltaR{this, "isolationDeltaR", 0.4};
-    Gaudi::Property<double> myMinPtForIsolation{this, "minPtForIsolation", 2.0};
-    Gaudi::Property<double> myIsolationThreshold{this, "isolationThreshold", 0.1};
+    Gaudi::Property<double> myCosConeAngle{this, "cosConeAngle", 0.98};
+
+    Gaudi::Property<bool> myUseRectangularIsolation{this, "useRectangularIsolation", true};
+    Gaudi::Property<double> myIsoMinTrackEnergy{this, "isoMinTrackEnergy", 15.0};
+    Gaudi::Property<double> myIsoMaxTrackEnergy{this, "isoMaxTrackEnergy", 1e20};
+    Gaudi::Property<double> myIsoMinConeEnergy{this, "isoMinConeEnergy", 0.0};
+    Gaudi::Property<double> myIsoMaxConeEnergy{this, "isoMaxConeEnergy", 2.0};
+
+    Gaudi::Property<bool> myUsePolynomialIsolation{this, "usePolynomialIsolation", false};
+    Gaudi::Property<double> myIsoPolynomialA{this, "isoPolynomialA", 0.0};
+    Gaudi::Property<double> myIsoPolynomialB{this, "isoPolynomialB", 20.0};
+    Gaudi::Property<double> myIsoPolynomialC{this, "isoPolynomialC", -300.0};
 
     // =========================================================================
     // Настройки кластеризации джетов
@@ -155,7 +162,13 @@ private:
     bool pfoIsLepton(const edm4hep::ReconstructedParticle &pfo) const;
     bool pfoIsChargedHadron(const edm4hep::ReconstructedParticle &pfo) const;
 
-    void calculateIsolationForPFO(const edm4hep::ReconstructedParticle &pfo, double deltaR);
+    // Вспомогательные функции для изоляции лептонов (ILC-style)
+    double getConeEnergy(const edm4hep::ReconstructedParticle &pfo,
+                         const edm4hep::ReconstructedParticleCollection *allPfos) const;
+    bool isIsolatedRectangular(double trackEnergy, double coneEnergy) const;
+    bool isIsolatedPolynomial(double trackEnergy, double coneEnergy) const;
+    bool isIsolatedLepton(const edm4hep::ReconstructedParticle &pfo,
+                          const edm4hep::ReconstructedParticleCollection *allPfos) const;
 
     void saveJetClusteringResults(const std::vector<fastjet::PseudoJet> &jets);
 

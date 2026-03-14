@@ -56,17 +56,31 @@ myAnalysis::myAnalysis(const std::string &name, ISvcLocator *pSvcLocator)
     declareProperty("centerOfMassEnergy", myCenterOfMassEnergy,
                     "Полная энергия в системе центра масс (ГэВ)");
     declareProperty("pfoEnergyMin", myPfoEnergyMin,
-                    "Минимальная энергия PFO для кластеризации джетов и расчета изоляции (GeV)");
+                    "Минимальная энергия PFO для кластеризации джетов (GeV)");
 
     // =========================================================================
-    // Настройки изоляции частиц
+    // Настройки изоляции лептонов (ILC-style, по энергии в конусе)
     // =========================================================================
-    declareProperty("isolationDeltaR", myIsolationDeltaR,
-                    "Радиус конуса для расчёта изоляции (ΔR)");
-    declareProperty("minPtForIsolation", myMinPtForIsolation,
-                    "Минимальный поперечный импульс для расчёта изоляции (ГэВ)");
-    declareProperty("isolationThreshold", myIsolationThreshold,
-                    "Порог изоляции, ниже которого частица считается изолированной");
+    declareProperty("cosConeAngle", myCosConeAngle,
+                    "Косинус полу-угла конуса для расчёта изоляции (cosθ >= cosConeAngle)");
+    declareProperty("useRectangularIsolation", myUseRectangularIsolation,
+                    "Использовать прямоугольные критерии изоляции");
+    declareProperty("isoMinTrackEnergy", myIsoMinTrackEnergy,
+                    "Минимальная энергия трека для требования изоляции (ГэВ)");
+    declareProperty("isoMaxTrackEnergy", myIsoMaxTrackEnergy,
+                    "Максимальная энергия трека для требования изоляции (ГэВ)");
+    declareProperty("isoMinConeEnergy", myIsoMinConeEnergy,
+                    "Минимальная энергия в конусе для требования изоляции (ГэВ)");
+    declareProperty("isoMaxConeEnergy", myIsoMaxConeEnergy,
+                    "Максимальная энергия в конусе для требования изоляции (ГэВ)");
+    declareProperty("usePolynomialIsolation", myUsePolynomialIsolation,
+                    "Использовать полиномиальные критерии изоляции");
+    declareProperty("isoPolynomialA", myIsoPolynomialA,
+                    "Коэффициент A полиномиального критерия: E_cone² < A·E² + B·E + C");
+    declareProperty("isoPolynomialB", myIsoPolynomialB,
+                    "Коэффициент B полиномиального критерия: E_cone² < A·E² + B·E + C");
+    declareProperty("isoPolynomialC", myIsoPolynomialC,
+                    "Коэффициент C полиномиального критерия: E_cone² < A·E² + B·E + C");
 
     // =========================================================================
     // Настройки кластеризации джетов
@@ -120,14 +134,12 @@ StatusCode myAnalysis::initialize() {
     myOutputTree->Branch("pfoTotalPy", &myEventData.pfoTotalPy);
     myOutputTree->Branch("pfoTotalPz", &myEventData.pfoTotalPz);
 
-    // Относительная изоляция
-    myOutputTree->Branch("relativeIsolation", &myEventData.relativeIsolation);
-    myOutputTree->Branch("relativeIsolationForLeptons", &myEventData.relativeIsolationForLeptons);
-    myOutputTree->Branch("relativeIsolationForHadrons", &myEventData.relativeIsolationForHadrons);
+    // Изоляция (ветки для отладки)
+    myOutputTree->Branch("leptonConeEnergy", &myEventData.leptonConeEnergy);
+    myOutputTree->Branch("isIsolatedLeptonFlag", &myEventData.isIsolatedLeptonFlag);
 
-    // За счет какой изолированой частицы событие было отброшено/не отброшено
+    // Было ли отброшено событие из-за изолированного лептона
     myOutputTree->Branch("skippedByIsolatedLepton", &myEventData.skippedByIsolatedLepton);
-    myOutputTree->Branch("skippedByIsolatedHadron", &myEventData.skippedByIsolatedHadron);
 
     // Какие типы частиц были найдены
     myOutputTree->Branch("particleType", &myEventData.particleType);
@@ -194,13 +206,9 @@ StatusCode myAnalysis::execute() {
         totalPFO4Momentum += TLorentzVector(pfo.getMomentum()[0], pfo.getMomentum()[1],
                                             pfo.getMomentum()[2], pfo.getEnergy());
 
-        // Если частица слишком мягкая, то не будем считать для нее
-        // изоляцию и она не будет участвовать в джет кластеринге
-        if (pfo.getEnergy() < myPfoEnergyMin.value()) {
-            // Для слишком мягких частиц изоляцию не считаем
-            myEventData.relativeIsolation.push_back(-1.0);
+        // Если частица слишком мягкая, то она не будет участвовать в джет кластеринге
+        if (pfo.getEnergy() < myPfoEnergyMin.value())
             continue;
-        }
 
         // Готовим частицу для кластеризации
         // emplace_back() это эффективный способ добавления в конец вектора
@@ -210,8 +218,18 @@ StatusCode myAnalysis::execute() {
         // Сохраняем для восстановления состава джета
         inputParticles.back().set_user_index(pfoIndex);
 
-        // Считаем изоляцию
-        calculateIsolationForPFO(pfo, myIsolationDeltaR);
+        // Считаем изоляцию только для лептонов
+        if (pfoIsLepton(pfo) && pfo.getEnergy() >= myPfoEnergyMin.value()) {
+            double coneEnergy = getConeEnergy(pfo, myPfoCollPtr);
+            myEventData.leptonConeEnergy.push_back(coneEnergy);
+
+            bool isolated = isIsolatedLepton(pfo, myPfoCollPtr);
+            myEventData.isIsolatedLeptonFlag.push_back(isolated ? 1 : 0);
+        } else {
+            // Для не-лептонов или мягких частиц записываем заглушки
+            myEventData.leptonConeEnergy.push_back(-1.0);
+            myEventData.isIsolatedLeptonFlag.push_back(0);
+        }
 
         // Записываем тип частицы
         myEventData.particleType.push_back(pfo.getType());
@@ -230,31 +248,17 @@ StatusCode myAnalysis::execute() {
         myCenterOfMassEnergy) // отбрасываем ошибки реконструкции (TODO: почему они возникли?)
         return StatusCode::SUCCESS;
 
-    // ── 2. Проверка на изолированные объекты ────────────────────────────
+    // ── 2. Проверка на изолированные лептоны ────────────────────────────
+    if (myApplyIsolationSelection.value()) {
+        // Проходим по всем лептонам
+        for (size_t i = 0; i < myEventData.isLepton.size(); ++i) {
+            // Проверяем только лептоны
+            if (!myEventData.isLepton[i])
+                continue;
 
-    // Проходим по всем сохранённым PFO (реконструированным частицам) события
-    for (size_t i = 0; i < myEventData.relativeIsolation.size(); ++i) {
-        // Пропускаем частицы, для которых изоляция не вычислялась
-        if (myEventData.relativeIsolation[i] < 0)
-            continue;
-
-        // Условие отбора события:
-        // Если частица изолирована (мало энергии/импульса в конусе вокруг неё)
-        // И при этом она относится к одной из «нежелательных» категорий, то
-        // отбрасываем это событие
-        //
-        // отбрасываем события, только если включен режим отбрасывания
-        if (myApplyIsolationSelection.value() &&
-            myEventData.relativeIsolation[i] < myIsolationThreshold.value()) {
-            if (myEventData.isLepton[i]) {
-                // Запоминаем за счет какой частицы было пропущено событие
+            // Если лептон изолирован, то отбрасываем событие
+            if (myEventData.isIsolatedLeptonFlag[i]) {
                 myEventData.skippedByIsolatedLepton = 1;
-                myEventData.eventNumber++;
-                myOutputTree->Fill();
-                return StatusCode::SUCCESS;
-            } else if (myEventData.isChargedHadron[i]) {
-                // Запоминаем за счет какой частицы было пропущено событие
-                myEventData.skippedByIsolatedHadron = 1;
                 myEventData.eventNumber++;
                 myOutputTree->Fill();
                 return StatusCode::SUCCESS;
@@ -394,66 +398,92 @@ bool myAnalysis::pfoIsChargedHadron(const edm4hep::ReconstructedParticle &pfo) c
 }
 
 /**
- * @brief Вычисляет относительную изоляцию данной PFO-частицы
+ * @brief Вычисляет энергию в конусе вокруг данной PFO-частицы
  *
- * Относительная изоляция определяется как сумма модулей поперечных импульсов всех других
- * частиц (кроме самой рассматриваемой), находящихся внутри конуса с раствором deltaR вокруг
- * данной частицы, нормированная на модуль поперечного импульса самой частицы.
+ * Конус определяется через косинус угла между импульсами:
+ * cosTheta = (P₁·P₂) / (|P₁|·|P₂|) >= cosConeAngle
  *
- * Используется суммарная изоляция (учитываются и заряженные, и нейтральные частицы).
- * Частицы с поперечным импульсом Pt меньше порогового значения myMinPtForIsolation.value()
- * считаются не подлежащими изоляционному анализу и получают значение -1.
- *
- * @param pfo Ссылка на объект реконструированной частицы (PFO), для которой
- *            производится расчёт изоляции
- * @param deltaR Угловой радиус конуса изоляции (в единицах ΔR = √(Δη² + Δφ²))
+ * @param pfo Ссылка на объект реконструированной частицы
+ * @param allPfos Коллекция всех PFO в событии
+ * @return Суммарная энергия частиц в конусе (без учёта самой частицы)
  */
-void myAnalysis::calculateIsolationForPFO(const edm4hep::ReconstructedParticle &pfo,
-                                          double deltaR) {
-    // Формируем четырёхимпульс рассматриваемой частицы
-    TLorentzVector thisP4(pfo.getMomentum()[0], pfo.getMomentum()[1], pfo.getMomentum()[2],
-                          pfo.getEnergy());
+double myAnalysis::getConeEnergy(const edm4hep::ReconstructedParticle &pfo,
+                                 const edm4hep::ReconstructedParticleCollection *allPfos) const {
+    double coneEnergy = 0.0;
+    TVector3 P_main(pfo.getMomentum()[0], pfo.getMomentum()[1], pfo.getMomentum()[2]);
+    double pMain = P_main.Mag();
 
-    // Если поперечный импульс слишком мал, то изоляцию не считаем
-    // (обычно такие частицы не представляют интереса для анализа изоляции)
-    if (thisP4.Pt() < myMinPtForIsolation.value()) {
-        myEventData.relativeIsolation.push_back(-1.);
-        return;
-    }
+    if (pMain < 1e-9)
+        return 0.0;
 
-    // Сумма модулей импульсов всех частиц, попавших в конус изоляции
-    double sumP_inCone = 0.0;
-
-    // Проходим по всей коллекции реконструированных частиц события
-    for (const auto &other : *myPfoCollPtr) {
-        // Пропускаем саму рассматриваемую частицу
+    for (const auto &other : *allPfos) {
         if (&other == &pfo)
             continue;
-
-        // Пропускаем невалидные/повреждённые объекты
         if (isInvalidPFO(other))
             continue;
 
-        // Формируем четырёхимпульс соседней частицы
-        TLorentzVector otherP4(other.getMomentum()[0], other.getMomentum()[1],
-                               other.getMomentum()[2], other.getEnergy());
+        TVector3 P_other(other.getMomentum()[0], other.getMomentum()[1], other.getMomentum()[2]);
+        double pOther = P_other.Mag();
+        if (pOther < 1e-9)
+            continue;
 
-        // Проверяем, попадает ли соседняя частица в конус изоляции
-        if (thisP4.DeltaR(otherP4) < deltaR) {
-            // Добавляем модуль поперечного импульса соседней частицы к сумме
-            sumP_inCone += otherP4.Pt();
+        double cosTheta = P_main.Dot(P_other) / (pMain * pOther);
+
+        if (cosTheta >= myCosConeAngle.value()) {
+            coneEnergy += other.getEnergy();
         }
     }
+    return coneEnergy;
+}
 
-    // Относительная изоляция = сумма импульсов в конусе / импульс центральной частицы
-    // Значение сохраняется в вектор для последующей записи в дерево
-    myEventData.relativeIsolation.push_back(sumP_inCone / thisP4.Pt());
+/**
+ * @brief Проверка прямоугольных критериев изоляции
+ */
+bool myAnalysis::isIsolatedRectangular(double trackEnergy, double coneEnergy) const {
+    if (trackEnergy < myIsoMinTrackEnergy.value())
+        return false;
+    if (trackEnergy > myIsoMaxTrackEnergy.value())
+        return false;
+    if (coneEnergy < myIsoMinConeEnergy.value())
+        return false;
+    if (coneEnergy > myIsoMaxConeEnergy.value())
+        return false;
+    return true;
+}
 
-    // В зависимости от типа частицы заполняем коллекции
-    if (pfoIsLepton(pfo))
-        myEventData.relativeIsolationForLeptons.push_back(sumP_inCone / thisP4.Pt());
-    else if (pfoIsChargedHadron(pfo))
-        myEventData.relativeIsolationForHadrons.push_back(sumP_inCone / thisP4.Pt());
+/**
+ * @brief Проверка полиномиальных критериев изоляции
+ *
+ * Критерий: E_cone² < A·E_track² + B·E_track + C
+ */
+bool myAnalysis::isIsolatedPolynomial(double trackEnergy, double coneEnergy) const {
+    double coneE2 = coneEnergy * coneEnergy;
+    double threshold = myIsoPolynomialA.value() * trackEnergy * trackEnergy +
+                       myIsoPolynomialB.value() * trackEnergy + myIsoPolynomialC.value();
+    return coneE2 < threshold;
+}
+
+/**
+ * @brief Проверка, является ли лептон изолированным по критериям ILC
+ */
+bool myAnalysis::isIsolatedLepton(const edm4hep::ReconstructedParticle &pfo,
+                                  const edm4hep::ReconstructedParticleCollection *allPfos) const {
+    if (!pfoIsLepton(pfo))
+        return false;
+
+    // Если оба критерия выключены, то изоляция не применяется
+    if (!myUseRectangularIsolation.value() && !myUsePolynomialIsolation.value())
+        return false;
+
+    double trackEnergy = pfo.getEnergy();
+    double coneEnergy = getConeEnergy(pfo, allPfos);
+
+    bool passedRectangular =
+        !myUseRectangularIsolation.value() || isIsolatedRectangular(trackEnergy, coneEnergy);
+    bool passedPolynomial =
+        !myUsePolynomialIsolation.value() || isIsolatedPolynomial(trackEnergy, coneEnergy);
+
+    return passedRectangular && passedPolynomial;
 }
 
 /**
