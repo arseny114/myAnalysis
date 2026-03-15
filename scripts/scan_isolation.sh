@@ -93,6 +93,77 @@ RUN_BACKGROUND=0
 LOG_FILE=""
 
 # ──────────────────────────────────────────────────────────────────────────────
+#          Обработка фонового режима и логирования
+# ──────────────────────────────────────────────────────────────────────────────
+
+# Проверяем, есть ли флаг -b в аргументах, до их обработки
+for arg in "$@"; do
+    if [ "$arg" = "-b" ] || [ "$arg" = "--background" ]; then
+        RUN_BACKGROUND=1
+        break
+    fi
+done
+
+# Если запрошен фоновый режим и мы ещё не в нём, то перезапускаем скрипт через nohup
+if [ "$RUN_BACKGROUND" -eq 1 ] && [ -z "${_RUNNING_IN_BACKGROUND:-}" ]; then
+    # Устанавливаем путь к лог-файлу по умолчанию, если не указан
+    TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+    if [ -z "$LOG_FILE" ]; then
+        LOG_FILE="${ANALYSIS_ROOT}/logs/scan_${PROCESS_NAME}_${TIMESTAMP}.log"
+    fi
+    
+    # Создаём директорию для лога
+    LOG_DIR=$(dirname "$LOG_FILE")
+    mkdir -p "$LOG_DIR" 2>/dev/null
+    
+    echo "Запуск в фоновом режиме..."
+    echo "Лог будет записываться в: $LOG_FILE"
+    
+    # Сохраняем PID в файл для удобства
+    PID_FILE="${LOG_FILE%.log}.pid"
+    
+    # Собираем аргументы БЕЗ флага -b/--background и -l/--log-file, чтобы избежать рекурсии
+    REEXEC_ARGS=()
+    skip_next=0
+    for arg in "$@"; do
+        if [ "$skip_next" -eq 1 ]; then
+            skip_next=0
+            continue
+        fi
+        case "$arg" in
+            -b|--background)
+                # Пропускаем этот флаг
+                ;;
+            -l|--log-file)
+                # Пропускаем флаг и его значение
+                skip_next=1
+                ;;
+            *)
+                REEXEC_ARGS+=("$arg")
+                ;;
+        esac
+    done
+    
+    # Экспортируем маркер, что мы уже в фоновом режиме (на всякий случай)
+    export _RUNNING_IN_BACKGROUND=1
+    
+    # Перезапускаем скрипт через nohup в фоне (с отфильтрованными аргументами)
+    nohup "$0" "${REEXEC_ARGS[@]}" --cepcsw-root "$CEPCSW_ROOT" > "$LOG_FILE" 2>&1 &
+    BG_PID=$!
+    
+    echo "Скрипт запущен в фоне с PID: $BG_PID"
+    echo "Для просмотра лога в реальном времени: tail -f $LOG_FILE"
+    echo "PID сохранён в: $PID_FILE"
+    echo "$BG_PID" > "$PID_FILE"
+    exit 0
+fi
+
+# Если мы уже в фоновом режиме, то помечаем это (для дочерних процессов)
+if [ "$RUN_BACKGROUND" -eq 1 ]; then
+    export _RUNNING_IN_BACKGROUND=1
+fi
+
+# ──────────────────────────────────────────────────────────────────────────────
 #          Парсинг аргументов командной строки
 # ──────────────────────────────────────────────────────────────────────────────
 while [[ $# -gt 0 ]]; do
@@ -182,89 +253,6 @@ TEMPLATE_FILE="${ANALYSIS_ROOT}/scripts/temp_ana.py"
 if [ ! -f "$TEMPLATE_FILE" ]; then
   echo "Ошибка: не найден шаблон конфигурации: $TEMPLATE_FILE"
   exit 1
-fi
-
-# ──────────────────────────────────────────────────────────────────────────────
-#          Обработка фонового режима и логирования
-# ──────────────────────────────────────────────────────────────────────────────
-
-# Если запрошен фоновый режим и мы ещё не в нём — пере-запускаем скрипт через nohup
-if [ "$RUN_BACKGROUND" -eq 1 ] && [ -z "$_RUNNING_IN_BACKGROUND" ]; then
-  # Устанавливаем путь к лог-файлу по умолчанию, если не указан
-  if [ -z "$LOG_FILE" ]; then
-    TIMESTAMP=$(date +%Y%m%d_%H%M%S)
-    LOG_FILE="${ANALYSIS_ROOT}/logs/scan_${PROCESS_NAME}_${TIMESTAMP}.log"
-  fi
-  
-  # Создаём директорию для лога, если нужно
-  LOG_DIR=$(dirname "$LOG_FILE")
-  mkdir -p "$LOG_DIR" 2>/dev/null || {
-    echo "Ошибка: не удалось создать директорию для лога: $LOG_DIR" >&2
-    exit 1
-  }
-  
-  echo "Запуск в фоновом режиме..."
-  echo "Лог будет записываться в: $LOG_FILE"
-  
-  # Собираем все аргументы для пере-запуска (без флага -b, чтобы избежать рекурсии)
-  REEXEC_ARGS=()
-  while [[ $# -gt 0 ]]; do
-    case $1 in
-      -b|--background)
-        shift $([ "$2" ] && [[ "$2" != -* ]] && echo 2 || echo 1)
-        ;;
-      -l|--log-file)
-        shift 2
-        ;;
-      *)
-        REEXEC_ARGS+=("$1")
-        shift
-        ;;
-    esac
-  done
-  
-  # Пере-запускаем скрипт через nohup в фоне
-  nohup "$0" "${REEXEC_ARGS[@]}" --cepcsw-root "$CEPCSW_ROOT" \
-    > "$LOG_FILE" 2>&1 &
-  
-  BG_PID=$!
-  echo "Скрипт запущен в фоне с PID: $BG_PID"
-  echo "Для просмотра лога в реальном времени: tail -f $LOG_FILE"
-  echo "Для проверки статуса процесса: ps -p $BG_PID"
-  echo "Для остановки: kill $BG_PID"
-  
-  # Сохраняем PID в файл для удобства
-  PID_FILE="${LOG_FILE%.log}.pid"
-  echo "$BG_PID" > "$PID_FILE"
-  echo "PID сохранён в: $PID_FILE"
-  
-  exit 0
-fi
-
-# Если мы уже в фоновом режиме — помечаем это переменной
-if [ "$RUN_BACKGROUND" -eq 1 ]; then
-  export _RUNNING_IN_BACKGROUND=1
-fi
-
-# Устанавливаем лог-файл по умолчанию, если не указан и не в фоне
-if [ -z "$LOG_FILE" ]; then
-  if [ "$RUN_BACKGROUND" -eq 1 ]; then
-    TIMESTAMP=$(date +%Y%m%d_%H%M%S)
-    LOG_FILE="${ANALYSIS_ROOT}/logs/scan_${PROCESS_NAME}_${TIMESTAMP}.log"
-  else
-    # В интерактивном режиме выводим в stdout, но дублируем в лог
-    TIMESTAMP=$(date +%Y%m%d_%H%M%S)
-    LOG_FILE="${ANALYSIS_ROOT}/logs/scan_${PROCESS_NAME}_${TIMESTAMP}.log"
-  fi
-fi
-
-# Создаём директорию для лога
-LOG_DIR=$(dirname "$LOG_FILE")
-mkdir -p "$LOG_DIR" 2>/dev/null
-
-# Если не в фоне и лог указан — дублируем вывод в лог через tee
-if [ "$RUN_BACKGROUND" -eq 0 ] && [ -n "$LOG_FILE" ]; then
-  exec > >(tee -a "$LOG_FILE") 2>&1
 fi
 
 # ──────────────────────────────────────────────────────────────────────────────
