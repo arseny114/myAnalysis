@@ -243,11 +243,6 @@ StatusCode myAnalysis::execute() {
     myEventData.pfoTotalPy = totalPFO4Momentum.Py();
     myEventData.pfoTotalPz = totalPFO4Momentum.Pz();
 
-    // Проверяем, что событие не является ошибкой реконструкции
-    if (totalPFO4Momentum.M() >
-        myCenterOfMassEnergy) // отбрасываем ошибки реконструкции (TODO: почему они возникли?)
-        return StatusCode::SUCCESS;
-
     // ── 2. Проверка на изолированные лептоны ────────────────────────────
     if (myApplyIsolationSelection.value()) {
         // Проходим по всем лептонам
