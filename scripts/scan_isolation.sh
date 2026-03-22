@@ -1,14 +1,15 @@
 #!/usr/bin/env bash
 #
 # =============================================================================
-# Скрипт для сканирования параметров cosConeAngle и isoMaxConeEnergy
+# Скрипт для сканирования параметров cosConeAngle, isoMaxConeEnergy и isoMinTrackEnergy
 # в анализе myAnalysis (ILC-style изоляция по энергии в конусе)
 # =============================================================================
 #
 # Назначение:
-#   - Запускает анализ myAnalysis с разными значениями cosConeAngle и isoMaxConeEnergy
+#   - Запускает анализ myAnalysis с разными значениями cosConeAngle, isoMaxConeEnergy и isoMinTrackEnergy
 #   - Для каждого значения cosConeAngle создаётся отдельная папка
-#   - Внутри папки сохраняются файлы для всех значений isoMaxConeEnergy
+#   - Внутри папки создаются подпапки для каждого isoMinTrackEnergy
+#   - Внутри сохраняются файлы для всех значений isoMaxConeEnergy
 #   - Для каждого сочетания: создаёт задания, ждёт завершения, объединяет результаты
 #   - Поддерживает фоновое выполнение (работает после отключения от SSH)
 #   - Ведёт логирование в указанный файл
@@ -18,7 +19,7 @@
 #
 # Примеры:
 #   ./scan_isolation.sh -p E240_qqHinvi -r /cefs/higgs/.../E240_qqHinvi/Reco
-#   ./scan_isolation.sh -p E240_qqHinvi -r /path/to/reco -c "0.95,0.98,0.995" -e "1.0,2.0,5.0"
+#   ./scan_isolation.sh -p E240_qqHinvi -r /path/to/reco -c "0.95,0.98,0.995" -e "1.0,2.0,5.0" -t "10.0,15.0,20.0"
 #   ./scan_isolation.sh -p E240_qqHinvi -r /path/to/reco -b -l /path/to/scan.log
 #
 # =============================================================================
@@ -35,6 +36,8 @@ show_help() {
                         Пример: 0.98 ≈ угол 11.5°, 0.995 ≈ 5.7°
   • isoMaxConeEnergy  — максимальная энергия в конусе вокруг лептона (ГэВ)
                         Если энергия в конусе > порога, лептон НЕ считается изолированным
+  • isoMinTrackEnergy — минимальная энергия трека-кандидата в изолированные лептоны (ГэВ)
+                        Лептоны с энергией ниже этого порога не проходят отбор как "изолированные"
 
 Использование:
 $(basename "$0") -p PROCESS_NAME -r RECO_DIR [OPTIONS]
@@ -48,6 +51,8 @@ $(basename "$0") -p PROCESS_NAME -r RECO_DIR [OPTIONS]
                         (по умолчанию: 0.95,0.98,0.995)
   -e, --cone-energy     Список значений isoMaxConeEnergy через запятую (ГэВ)
                         (по умолчанию: 1.0,2.0,5.0)
+  -t, --track-energy    Список значений isoMinTrackEnergy через запятую (ГэВ)
+                        (по умолчанию: 10.0,15.0,20.0)
   -n, --num-files       Количество файлов для обработки за один запуск
                         (по умолчанию: 100)
   -o, --analysis-root   Корневая директория анализа
@@ -69,7 +74,7 @@ $(basename "$0") -p PROCESS_NAME -r RECO_DIR [OPTIONS]
   $(basename "$0") -p E240_qqHinvi -r /cefs/higgs/.../E240_qqHinvi/Reco
 
   # Запуск с кастомными значениями в фоновом режиме с логированием
-  $(basename "$0") -p E240_qqHinvi -r /path/to/reco -c "0.97,0.99" -e "0.5,1.0,3.0" -b -l /path/to/scan.log
+  $(basename "$0") -p E240_qqHinvi -r /path/to/reco -c "0.97,0.99" -e "0.5,1.0,3.0" -t "12.0,18.0" -b -l /path/to/scan.log
 
   # Запуск без удаления временных файлов (для отладки)
   $(basename "$0") -p E240_qqHinvi -r /path/to/reco -k
@@ -85,6 +90,7 @@ PROCESS_NAME=""
 RECO_DIR=""
 COS_CONE_VALUES="0.95,0.98,0.995"
 CONE_ENERGY_VALUES="1.0,2.0,5.0"
+TRACK_ENERGY_VALUES="10.0,15.0,20.0"
 NUM_FILES=100
 HEP_GROUP="higgs"
 MEMORY_MB=6000
@@ -182,6 +188,10 @@ while [[ $# -gt 0 ]]; do
         ;;
     -e | --cone-energy)
         CONE_ENERGY_VALUES="$2"
+        shift 2
+        ;;
+    -t | --track-energy)
+        TRACK_ENERGY_VALUES="$2"
         shift 2
         ;;
     -n | --num-files)
@@ -330,11 +340,22 @@ update_coneEnergy_in_template() {
     return 0
 }
 
+# Функция обновления значения isoMinTrackEnergy в шаблоне
+update_trackEnergy_in_template() {
+    local energy_val="$1"
+    local temp_template="${TEMPLATE_FILE}.tmp"
+    sed "s/\(myAnalysis\.isoMinTrackEnergy[[:space:]]*=[[:space:]]*\)[0-9.]\+/\1${energy_val}/" \
+        "$TEMPLATE_FILE" >"$temp_template" || return 1
+    mv "$temp_template" "$TEMPLATE_FILE" || return 1
+    return 0
+}
+
 # Функция восстановления исходных значений в шаблоне
 restore_template_defaults() {
     local temp_template="${TEMPLATE_FILE}.tmp"
     sed -e "s/\(myAnalysis\.cosConeAngle[[:space:]]*=[[:space:]]*\)[0-9.]\+/\10.98/" \
         -e "s/\(myAnalysis\.isoMaxConeEnergy[[:space:]]*=[[:space:]]*\)[0-9.]\+/\12.0/" \
+        -e "s/\(myAnalysis\.isoMinTrackEnergy[[:space:]]*=[[:space:]]*\)[0-9.]\+/\115.0/" \
         "$TEMPLATE_FILE" >"$temp_template" || return 1
     mv "$temp_template" "$TEMPLATE_FILE" || return 1
     return 0
@@ -344,7 +365,7 @@ restore_template_defaults() {
 #          Основной цикл сканирования
 # ──────────────────────────────────────────────────────────────────────────────
 log_msg "INFO" "======================================================================"
-log_msg "INFO" "Запуск двойного сканирования параметров изоляции (ILC-style)"
+log_msg "INFO" "Запуск тройного сканирования параметров изоляции (ILC-style)"
 log_msg "INFO" "======================================================================"
 log_msg "INFO" ""
 log_msg "INFO" "Параметры сканирования:"
@@ -353,6 +374,7 @@ log_msg "INFO" "  Директория RECO:  ${RECO_DIR}"
 log_msg "INFO" "  Директория анализа: ${ANALYSIS_ROOT}"
 log_msg "INFO" "  Значения cosConeAngle:  ${COS_CONE_VALUES}"
 log_msg "INFO" "  Значения isoMaxConeEnergy: ${CONE_ENERGY_VALUES} ГэВ"
+log_msg "INFO" "  Значения isoMinTrackEnergy: ${TRACK_ENERGY_VALUES} ГэВ"
 log_msg "INFO" "  Файлов за запуск: ${NUM_FILES}"
 log_msg "INFO" "  Фоновый режим:    $([ "$RUN_BACKGROUND" -eq 1 ] && echo 'Да' || echo 'Нет')"
 log_msg "INFO" "  Лог-файл:         ${LOG_FILE}"
@@ -364,8 +386,9 @@ log_msg "INFO" ""
 # Преобразуем строки значений в массивы
 IFS=',' read -ra COS_CONE_ARRAY <<<"$COS_CONE_VALUES"
 IFS=',' read -ra CONE_ENERGY_ARRAY <<<"$CONE_ENERGY_VALUES"
+IFS=',' read -ra TRACK_ENERGY_ARRAY <<<"$TRACK_ENERGY_VALUES"
 
-total_combinations=$((${#COS_CONE_ARRAY[@]} * ${#CONE_ENERGY_ARRAY[@]}))
+total_combinations=$((${#COS_CONE_ARRAY[@]} * ${#CONE_ENERGY_ARRAY[@]} * ${#TRACK_ENERGY_ARRAY[@]}))
 combination_counter=0
 successful_combinations=0
 
@@ -389,87 +412,112 @@ for cos_val in "${COS_CONE_ARRAY[@]}"; do
     log_msg "INFO" "Директория для результатов: ${COS_DIR}"
     log_msg "INFO" ""
 
-    # Внутренний цикл по isoMaxConeEnergy
-    energy_counter=0
-    for cone_energy in "${CONE_ENERGY_ARRAY[@]}"; do
-        energy_counter=$((energy_counter + 1))
-        combination_counter=$((combination_counter + 1))
+    # Средний цикл по isoMinTrackEnergy
+    track_counter=0
+    for track_energy in "${TRACK_ENERGY_ARRAY[@]}"; do
+        track_counter=$((track_counter + 1))
         log_msg "INFO" "──────────────────────────────────────────────────────────────────────"
-        log_msg "INFO" "[${combination_counter}/${total_combinations}] cosConeAngle=${cos_val}, isoMaxConeEnergy=${cone_energy} ГэВ"
+        log_msg "INFO" "[isoMinTrackEnergy ${track_counter}/${#TRACK_ENERGY_ARRAY[@]}] isoMinTrackEnergy = ${track_energy} ГэВ"
         log_msg "INFO" "──────────────────────────────────────────────────────────────────────"
         log_msg "INFO" ""
 
-        # 1. Обновляем шаблон конфигурации
-        log_msg "INFO" "Шаг 1: Обновление шаблона конфигурации..."
-        if ! update_cosConeAngle_in_template "$cos_val"; then
-            log_msg "ERROR" "Не удалось обновить значение cosConeAngle в ${TEMPLATE_FILE}"
-            continue
-        fi
-        if ! update_coneEnergy_in_template "$cone_energy"; then
-            log_msg "ERROR" "Не удалось обновить значение isoMaxConeEnergy в ${TEMPLATE_FILE}"
-            update_cosConeAngle_in_template "${COS_CONE_ARRAY[0]}"
-            continue
-        fi
-        log_msg "INFO" "  Шаблон обновлён: cosConeAngle = ${cos_val}, isoMaxConeEnergy = ${cone_energy} ГэВ"
-        log_msg "INFO" ""
-
-        # 2. Запускаем создание заданий на кластер
-        log_msg "INFO" "Шаг 2: Запуск ${NUM_FILES} заданий на кластере..."
-        "${SCRIPT_DIR}/create_jobs.sh" \
-            -p "${PROCESS_NAME}" \
-            -r "${RECO_DIR}" \
-            -n "${NUM_FILES}" \
-            -o "${ANALYSIS_ROOT}" \
-            -c "${CEPCSW_ROOT}" \
-            -g "${HEP_GROUP}" \
-            -m "${MEMORY_MB}" \
-            -s 1
-        if [ $? -ne 0 ]; then
-            log_msg "ERROR" "create_jobs.sh завершился с ошибкой"
-            continue
-        fi
-        log_msg "INFO" ""
-
-        # 3. Ожидаем завершения всех заданий
-        log_msg "INFO" "Шаг 3: Ожидание завершения заданий..."
-        wait_for_jobs "${PROCESS_NAME}"
-        log_msg "INFO" ""
-
-        # 4. Объединяем результаты
-        log_msg "INFO" "Шаг 4: Объединение результатов..."
-        "${SCRIPT_DIR}/merge_results.sh" -p "${PROCESS_NAME}" -o "${ANALYSIS_ROOT}" || {
-            log_msg "ERROR" "Не удалось объединить результаты для cosConeAngle=${cos_val}, isoMaxConeEnergy=${cone_energy}"
+        TRACK_DIR="${COS_DIR}/trackE_${track_energy}GeV"
+        mkdir -p "$TRACK_DIR" || {
+            log_msg "ERROR" "Не удалось создать директорию ${TRACK_DIR}"
             continue
         }
-
-        MERGED_BASE="merged_${PROCESS_NAME}_cos${cos_val}_coneE${cone_energy}GeV.root"
-        MERGED_PATH="${COS_DIR}/${MERGED_BASE}"
-
-        if [ -f "${ANALYSIS_ROOT}/merged_${PROCESS_NAME}.root" ]; then
-            mv "${ANALYSIS_ROOT}/merged_${PROCESS_NAME}.root" "$MERGED_PATH"
-            log_msg "INFO" "  Объединённый файл: ${MERGED_PATH}"
-            successful_combinations=$((successful_combinations + 1))
-        else
-            log_msg "ERROR" "Файл ${ANALYSIS_ROOT}/merged_${PROCESS_NAME}.root не найден после merge"
-            continue
-        fi
+        log_msg "INFO" "Директория для результатов: ${TRACK_DIR}"
         log_msg "INFO" ""
 
-        # 5. Очищаем временные результаты
-        if [ "$KEEP_TEMP" -eq 0 ]; then
-            log_msg "INFO" "Шаг 5: Очистка временных файлов..."
-            RESULTS_DIR="${ANALYSIS_ROOT}/results/${PROCESS_NAME}"
-            rm -f "${RESULTS_DIR}"/ana_"${PROCESS_NAME}"_*.root 2>/dev/null
-            log_msg "INFO" "  Временные файлы удалены"
-        else
-            log_msg "INFO" "Шаг 5: Пропуск очистки (--keep-temp указан)"
-        fi
+        # Внутренний цикл по isoMaxConeEnergy
+        energy_counter=0
+        for cone_energy in "${CONE_ENERGY_ARRAY[@]}"; do
+            energy_counter=$((energy_counter + 1))
+            combination_counter=$((combination_counter + 1))
+            log_msg "INFO" "──────────────────────────────────────────────────────────────────────"
+            log_msg "INFO" "[${combination_counter}/${total_combinations}] cosConeAngle=${cos_val}, isoMinTrackEnergy=${track_energy} ГэВ, isoMaxConeEnergy=${cone_energy} ГэВ"
+            log_msg "INFO" "──────────────────────────────────────────────────────────────────────"
+            log_msg "INFO" ""
+
+            # 1. Обновляем шаблон конфигурации
+            log_msg "INFO" "Шаг 1: Обновление шаблона конфигурации..."
+            if ! update_cosConeAngle_in_template "$cos_val"; then
+                log_msg "ERROR" "Не удалось обновить значение cosConeAngle в ${TEMPLATE_FILE}"
+                continue
+            fi
+            if ! update_coneEnergy_in_template "$cone_energy"; then
+                log_msg "ERROR" "Не удалось обновить значение isoMaxConeEnergy в ${TEMPLATE_FILE}"
+                update_cosConeAngle_in_template "${COS_CONE_ARRAY[0]}"
+                continue
+            fi
+            if ! update_trackEnergy_in_template "$track_energy"; then
+                log_msg "ERROR" "Не удалось обновить значение isoMinTrackEnergy в ${TEMPLATE_FILE}"
+                update_cosConeAngle_in_template "${COS_CONE_ARRAY[0]}"
+                update_coneEnergy_in_template "${CONE_ENERGY_ARRAY[0]}"
+                continue
+            fi
+            log_msg "INFO" "  Шаблон обновлён: cosConeAngle = ${cos_val}, isoMinTrackEnergy = ${track_energy} ГэВ, isoMaxConeEnergy = ${cone_energy} ГэВ"
+            log_msg "INFO" ""
+
+            # 2. Запускаем создание заданий на кластер
+            log_msg "INFO" "Шаг 2: Запуск ${NUM_FILES} заданий на кластере..."
+            "${SCRIPT_DIR}/create_jobs.sh" \
+                -p "${PROCESS_NAME}" \
+                -r "${RECO_DIR}" \
+                -n "${NUM_FILES}" \
+                -o "${ANALYSIS_ROOT}" \
+                -c "${CEPCSW_ROOT}" \
+                -g "${HEP_GROUP}" \
+                -m "${MEMORY_MB}" \
+                -s 1
+            if [ $? -ne 0 ]; then
+                log_msg "ERROR" "create_jobs.sh завершился с ошибкой"
+                continue
+            fi
+            log_msg "INFO" ""
+
+            # 3. Ожидаем завершения всех заданий
+            log_msg "INFO" "Шаг 3: Ожидание завершения заданий..."
+            wait_for_jobs "${PROCESS_NAME}"
+            log_msg "INFO" ""
+
+            # 4. Объединяем результаты
+            log_msg "INFO" "Шаг 4: Объединение результатов..."
+            "${SCRIPT_DIR}/merge_results.sh" -p "${PROCESS_NAME}" -o "${ANALYSIS_ROOT}" || {
+                log_msg "ERROR" "Не удалось объединить результаты для cosConeAngle=${cos_val}, isoMinTrackEnergy=${track_energy}, isoMaxConeEnergy=${cone_energy}"
+                continue
+            }
+            MERGED_BASE="merged_${PROCESS_NAME}_cos${cos_val}_trackE${track_energy}GeV_coneE${cone_energy}GeV.root"
+            MERGED_PATH="${TRACK_DIR}/${MERGED_BASE}"
+            if [ -f "${ANALYSIS_ROOT}/merged_${PROCESS_NAME}.root" ]; then
+                mv "${ANALYSIS_ROOT}/merged_${PROCESS_NAME}.root" "$MERGED_PATH"
+                log_msg "INFO" "  Объединённый файл: ${MERGED_PATH}"
+                successful_combinations=$((successful_combinations + 1))
+            else
+                log_msg "ERROR" "Файл ${ANALYSIS_ROOT}/merged_${PROCESS_NAME}.root не найден после merge"
+                continue
+            fi
+            log_msg "INFO" ""
+
+            # 5. Очищаем временные результаты
+            if [ "$KEEP_TEMP" -eq 0 ]; then
+                log_msg "INFO" "Шаг 5: Очистка временных файлов..."
+                RESULTS_DIR="${ANALYSIS_ROOT}/results/${PROCESS_NAME}"
+                rm -f "${RESULTS_DIR}"/ana_"${PROCESS_NAME}"_*.root 2>/dev/null
+                log_msg "INFO" "  Временные файлы удалены"
+            else
+                log_msg "INFO" "Шаг 5: Пропуск очистки (--keep-temp указан)"
+            fi
+            log_msg "INFO" ""
+        done
+        log_msg "INFO" "Завершена обработка всех isoMaxConeEnergy для isoMinTrackEnergy = ${track_energy} ГэВ"
+        log_msg "INFO" "Файлы сохранены в: ${TRACK_DIR}"
+        ls -lh "${TRACK_DIR}"/*.root 2>/dev/null || log_msg "WARN" "  (файлы не найдены)"
         log_msg "INFO" ""
     done
-
-    log_msg "INFO" "Завершена обработка всех isoMaxConeEnergy для cosConeAngle = ${cos_val}"
+    log_msg "INFO" "Завершена обработка всех isoMinTrackEnergy для cosConeAngle = ${cos_val}"
     log_msg "INFO" "Файлы сохранены в: ${COS_DIR}"
-    ls -lh "${COS_DIR}"/*.root 2>/dev/null || log_msg "WARN" "  (файлы не найдены)"
+    ls -lh "${COS_DIR}"/*/ 2>/dev/null || log_msg "WARN" "  (файлы не найдены)"
     log_msg "INFO" ""
 done
 
