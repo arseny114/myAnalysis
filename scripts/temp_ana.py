@@ -99,6 +99,11 @@ myAnalysis.applyIsolationSelection = True          # Включить отбор
 myAnalysis.ECALRMax = 2130.0                       # Максимальный радиус барреля ECAL [мм]
 myAnalysis.ECALZMax = 3230.0                       # Максимальная |Z| торца ECAL [мм]
 
+# =============================================================================
+# Настройки сбора статистики хитов
+# =============================================================================
+myAnalysis.collectHitStats = True                  # Собирать статистику хитов (True/False)
+
 ########################################
 from Configurables import ApplicationMgr
 ApplicationMgr(

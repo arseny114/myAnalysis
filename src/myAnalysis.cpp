@@ -107,6 +107,12 @@ myAnalysis::myAnalysis(const std::string &name, ISvcLocator *pSvcLocator)
     // =========================================================================
     declareProperty("ECALRMax", ecalRMax, "Максимальный радиус барреля ECAL [мм]");
     declareProperty("ECALZMax", ecalZMax, "Максимальная |Z| торца ECAL [мм]");
+
+    // =========================================================================
+    // Настройки сбора статистики хитов
+    // =========================================================================
+    declareProperty("collectHitStats", myCollectHitStats,
+                    "Собирать статистику хитов в ECAL/HCAL (true) или пропускать (false)");
 }
 
 /**
@@ -219,14 +225,23 @@ StatusCode myAnalysis::execute() {
         myEventData.isLepton.push_back(pfoIsLepton(pfo) ? 1 : 0);
         myEventData.isChargedHadron.push_back(pfoIsChargedHadron(pfo) ? 1 : 0);
 
-        // Подсчёт хитов в кластерах для этого PFO
-        auto hitStats = countClusterHits(pfo);
+        // Подсчёт хитов в кластерах для этого PFO (только если включено)
+        if (myCollectHitStats.value()) {
+            // Подсчёт хитов в кластерах для этого PFO
+            auto hitStats = countClusterHits(pfo);
 
-        // Сохраняем в векторы (по одному значению на PFO)
-        myEventData.pfoNHitsEcal.push_back(hitStats.nHitsEcal);
-        myEventData.pfoNHitsHcal.push_back(hitStats.nHitsHcal);
-        myEventData.pfoNClustersEcal.push_back(hitStats.nClustersEcal);
-        myEventData.pfoNClustersHcal.push_back(hitStats.nClustersHcal);
+            // Сохраняем в векторы (по одному значению на PFO)
+            myEventData.pfoNHitsEcal.push_back(hitStats.nHitsEcal);
+            myEventData.pfoNHitsHcal.push_back(hitStats.nHitsHcal);
+            myEventData.pfoNClustersEcal.push_back(hitStats.nClustersEcal);
+            myEventData.pfoNClustersHcal.push_back(hitStats.nClustersHcal);
+        } else {
+            // Заполняем заглушками, чтобы размеры векторов совпадали
+            myEventData.pfoNHitsEcal.push_back(-1);
+            myEventData.pfoNHitsHcal.push_back(-1);
+            myEventData.pfoNClustersEcal.push_back(-1);
+            myEventData.pfoNClustersHcal.push_back(-1);
+        }
 
         // Суммируем полный четырёхимпульс события
         totalPFO4Momentum += TLorentzVector(pfo.getMomentum()[0], pfo.getMomentum()[1],
