@@ -101,6 +101,12 @@ myAnalysis::myAnalysis(const std::string &name, ISvcLocator *pSvcLocator)
                     "Применять отбор по джетам (true) или сохранять все (false)");
     declareProperty("applyIsolationSelection", myApplyIsolationSelection,
                     "Применять отбор по изоляции (true) или сохранять все (false)");
+
+    // =========================================================================
+    // Параметры геометрии детектора (для определения ECAL/HCAL)
+    // =========================================================================
+    declareProperty("ECALRMax", ecalRMax, "Максимальный радиус барреля ECAL [мм]");
+    declareProperty("ECALZMax", ecalZMax, "Максимальная |Z| торца ECAL [мм]");
 }
 
 /**
@@ -127,6 +133,12 @@ StatusCode myAnalysis::initialize() {
     myOutputTree->Branch("pfoPx", &myEventData.pfoPx);
     myOutputTree->Branch("pfoPy", &myEventData.pfoPy);
     myOutputTree->Branch("pfoPz", &myEventData.pfoPz);
+
+    // Ветки для числа хитов и кластеров в детекторах (на каждый PFO)
+    myOutputTree->Branch("pfoNHitsEcal", &myEventData.pfoNHitsEcal);
+    myOutputTree->Branch("pfoNHitsHcal", &myEventData.pfoNHitsHcal);
+    myOutputTree->Branch("pfoNClustersEcal", &myEventData.pfoNClustersEcal);
+    myOutputTree->Branch("pfoNClustersHcal", &myEventData.pfoNClustersHcal);
 
     // Суммарные характеристики всех PFO в событии
     myOutputTree->Branch("pfoTotalE", &myEventData.pfoTotalE);
@@ -206,6 +218,15 @@ StatusCode myAnalysis::execute() {
         myEventData.particleType.push_back(pfo.getType());
         myEventData.isLepton.push_back(pfoIsLepton(pfo) ? 1 : 0);
         myEventData.isChargedHadron.push_back(pfoIsChargedHadron(pfo) ? 1 : 0);
+
+        // Подсчёт хитов в кластерах для этого PFO
+        auto hitStats = countClusterHits(pfo);
+
+        // Сохраняем в векторы (по одному значению на PFO)
+        myEventData.pfoNHitsEcal.push_back(hitStats.nHitsEcal);
+        myEventData.pfoNHitsHcal.push_back(hitStats.nHitsHcal);
+        myEventData.pfoNClustersEcal.push_back(hitStats.nClustersEcal);
+        myEventData.pfoNClustersHcal.push_back(hitStats.nClustersHcal);
 
         // Суммируем полный четырёхимпульс события
         totalPFO4Momentum += TLorentzVector(pfo.getMomentum()[0], pfo.getMomentum()[1],
@@ -562,4 +583,48 @@ bool myAnalysis::getPfoCollection() {
     }
 
     return true;
+}
+
+/**
+ * @brief Определяет, находится ли кластер в ECAL по геометрическим порогам
+ */
+bool myAnalysis::isClusterInEcal(const edm4hep::Cluster &cluster) const {
+    // Получаем позицию кластера (Vector3f)
+    // Это энергетически взвешенный центр тяжести всех хитов кластера в мм
+    auto pos = cluster.getPosition();
+    // Радиальное расстояние от оси пучка
+    // hypot(x, y) это r = sqrt(x^2 + y^2)
+    double r = std::hypot(pos.x, pos.y);
+    // Абсолютное значение по оси Z
+    double z = std::fabs(pos.z);
+
+    // ECAL: внутри цилиндра радиусом ecalRMax и высотой ±ecalZMax
+    return (r < ecalRMax.value() && z < ecalZMax.value());
+}
+
+/**
+ * @brief Подсчитывает хиты в кластерах данного PFO с разделением на ECAL/HCAL
+ */
+myAnalysis::ClusterHitStats
+myAnalysis::countClusterHits(const edm4hep::ReconstructedParticle &pfo) const {
+
+    // Создаем экземпляр структуры для подсчета хитов
+    ClusterHitStats stats;
+
+    // Перебираем все кластеры, ассоциированные с этим PFO
+    for (const auto &cluster : pfo.getClusters()) {
+        // Количество хитов в текущем кластере
+        int nHits = static_cast<int>(cluster.hits_size());
+
+        // Определяем детектор по позиции кластера
+        if (isClusterInEcal(cluster)) {
+            stats.nHitsEcal += nHits;
+            stats.nClustersEcal++;
+        } else {
+            stats.nHitsHcal += nHits;
+            stats.nClustersHcal++;
+        }
+    }
+
+    return stats;
 }

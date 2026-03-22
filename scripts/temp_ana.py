@@ -93,6 +93,12 @@ myAnalysis.minConstPerJet = 6                      # Минимальное ко
 myAnalysis.applyJetSelection = False               # Включить отбор по джетам
 myAnalysis.applyIsolationSelection = True          # Включить отбор по изоляции
 
+# =============================================================================
+# Параметры геометрии детектора (для определения ECAL/HCAL)
+# =============================================================================
+myAnalysis.ECALRMax = 2130.0                       # Максимальный радиус барреля ECAL [мм]
+myAnalysis.ECALZMax = 3230.0                       # Максимальная |Z| торца ECAL [мм]
+
 ########################################
 from Configurables import ApplicationMgr
 ApplicationMgr(

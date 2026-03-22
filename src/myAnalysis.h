@@ -32,6 +32,11 @@ public:
         leptonConeEnergy.clear();
         isIsolatedLeptonFlag.clear();
 
+        pfoNHitsEcal.clear();
+        pfoNHitsHcal.clear();
+        pfoNClustersEcal.clear();
+        pfoNClustersHcal.clear();
+
         reconstructedJetConstituentsPfoIdx.clear();
         reconstructedJetPx.clear();
         reconstructedJetPy.clear();
@@ -60,6 +65,12 @@ public:
     // Кинематика PFO
     std::vector<double> pfoE, pfoPx, pfoPy, pfoPz;
     double pfoTotalE = 0, pfoTotalPx = 0, pfoTotalPy = 0, pfoTotalPz = 0;
+
+    // Число хитов и кластеров в детекторах для каждого PFO
+    std::vector<int> pfoNHitsEcal;
+    std::vector<int> pfoNHitsHcal;
+    std::vector<int> pfoNClustersEcal;
+    std::vector<int> pfoNClustersHcal;
 
     // Изоляция лептонов (ветки для отладки)
     std::vector<double> leptonConeEnergy;  // Энергия в конусе для лептонов
@@ -145,6 +156,13 @@ private:
     Gaudi::Property<bool> myApplyJetSelection{this, "applyJetSelection", true};
     Gaudi::Property<bool> myApplyIsolationSelection{this, "applyIsolationSelection", true};
 
+    // =========================================================================
+    // Параметры геометрии детектора (для определения ECAL/HCAL)
+    // =========================================================================
+    Gaudi::Property<double> ecalRMax{this, "ECALRMax", 2130.0,
+                                     "Максимальный радиус барреля ECAL [мм]"};
+    Gaudi::Property<double> ecalZMax{this, "ECALZMax", 3230.0, "Максимальная |Z| торца ECAL [мм]"};
+
     // Данные текущего события
     EventData myEventData;
 
@@ -157,7 +175,25 @@ private:
         "CyberPFOPID", Gaudi::DataHandle::Reader, this};
     const edm4hep::ReconstructedParticleCollection *myPfoCollPtr = nullptr;
 
+    // =========================================================================
+    // Вспомогательные структуры
+    // =========================================================================
+    /**
+     * @brief Структура для хранения статистики хитов в детекторах
+     */
+    struct ClusterHitStats {
+        int nHitsEcal = 0;     // Число хитов в ECAL
+        int nHitsHcal = 0;     // Число хитов в HCAL
+        int nClustersEcal = 0; // Число кластеров в ECAL
+        int nClustersHcal = 0; // Число кластеров в HCAL
+
+        int totalHits() const { return nHitsEcal + nHitsHcal; }
+        int totalClusters() const { return nClustersEcal + nClustersHcal; }
+    };
+
+    // =========================================================================
     // Вспомогательные функции
+    // =========================================================================
     bool isInvalidPFO(const edm4hep::ReconstructedParticle &pfo) const;
     bool pfoIsLepton(const edm4hep::ReconstructedParticle &pfo) const;
     bool pfoIsChargedHadron(const edm4hep::ReconstructedParticle &pfo) const;
@@ -173,6 +209,20 @@ private:
     void saveJetClusteringResults(const std::vector<fastjet::PseudoJet> &jets);
 
     bool getPfoCollection();
+
+    /**
+     * @brief Подсчитывает хиты в кластерах данного PFO с разделением на ECAL/HCAL
+     * @param pfo Реконструированная частица
+     * @return Структура со статистикой хитов и кластеров
+     */
+    ClusterHitStats countClusterHits(const edm4hep::ReconstructedParticle &pfo) const;
+
+    /**
+     * @brief Определяет, находится ли кластер в ECAL по его позиции
+     * @param cluster Ссылка на кластер
+     * @return true если кластер в ECAL, false если в HCAL
+     */
+    bool isClusterInEcal(const edm4hep::Cluster &cluster) const;
 };
 
 #endif // MY_ANALYSIS_H
