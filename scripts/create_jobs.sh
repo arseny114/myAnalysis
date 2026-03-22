@@ -23,7 +23,7 @@
 #          Функция вывода справки
 # ──────────────────────────────────────────────────────────────────────────────
 show_help() {
-    cat << EOF
+    cat <<EOF
 Скрипт для массового запуска анализа myAnalysis на кластере
 
 Использование:
@@ -70,54 +70,54 @@ RECO_DIR=""
 SUBMIT_JOBS=1
 HEP_GROUP="higgs"
 MEMORY_MB=6000
-MAX_FILES=0  # 0 означает обработку всех файлов
+MAX_FILES=0 # 0 означает обработку всех файлов
 
 # ──────────────────────────────────────────────────────────────────────────────
 #          Парсинг аргументов командной строки
 # ──────────────────────────────────────────────────────────────────────────────
 while [[ $# -gt 0 ]]; do
     case $1 in
-        -p|--process)
-            PROCESS_NAME="$2"
-            shift 2
-            ;;
-        -r|--reco-dir)
-            RECO_DIR="$2"
-            shift 2
-            ;;
-        -o|--analysis-root)
-            ANALYSIS_ROOT="$2"
-            shift 2
-            ;;
-        -c|--cepcsw-root)
-            CEPCSW_ROOT="$2"
-            shift 2
-            ;;
-        -s|--submit)
-            SUBMIT_JOBS="$2"
-            shift 2
-            ;;
-        -g|--group)
-            HEP_GROUP="$2"
-            shift 2
-            ;;
-        -m|--memory)
-            MEMORY_MB="$2"
-            shift 2
-            ;;
-        -n|--num-files)
-            MAX_FILES="$2"
-            shift 2
-            ;;
-        -h|--help)
-            show_help
-            exit 0
-            ;;
-        *)
-            echo "Ошибка: неизвестный параметр '$1'"
-            echo "Используйте -h для просмотра справки"
-            exit 1
-            ;;
+    -p | --process)
+        PROCESS_NAME="$2"
+        shift 2
+        ;;
+    -r | --reco-dir)
+        RECO_DIR="$2"
+        shift 2
+        ;;
+    -o | --analysis-root)
+        ANALYSIS_ROOT="$2"
+        shift 2
+        ;;
+    -c | --cepcsw-root)
+        CEPCSW_ROOT="$2"
+        shift 2
+        ;;
+    -s | --submit)
+        SUBMIT_JOBS="$2"
+        shift 2
+        ;;
+    -g | --group)
+        HEP_GROUP="$2"
+        shift 2
+        ;;
+    -m | --memory)
+        MEMORY_MB="$2"
+        shift 2
+        ;;
+    -n | --num-files)
+        MAX_FILES="$2"
+        shift 2
+        ;;
+    -h | --help)
+        show_help
+        exit 0
+        ;;
+    *)
+        echo "Ошибка: неизвестный параметр '$1'"
+        echo "Используйте -h для просмотра справки"
+        exit 1
+        ;;
     esac
 done
 
@@ -212,19 +212,19 @@ for input_file in "${RECO_FILES[@]}"; do
 
     idx=$(printf "%05d" "$job_counter")
     output_file="${RES_DIR}/ana_${PROCESS_NAME}_${idx}.root"
-    
+
     # Генерируем конфигурационный python-скрипт для этого файла
     sed -e "s|{rec_path}|${input_file}|g" \
         -e "s|{ana_path}|${output_file}|g" \
-        "${SCRIPT_DIR}/temp_ana.py" > "${JOB_DIR}/ana_${idx}.py" || {
+        "${SCRIPT_DIR}/temp_ana.py" >"${JOB_DIR}/ana_${idx}.py" || {
         echo "Ошибка при генерации ana_${idx}.py" >&2
         continue
     }
-    
+
     # ── Создание и подача задания ───────────────────────────────────────────
     if [ "$SUBMIT_JOBS" -eq 1 ]; then
         sub_script="${JOB_DIR}/sub_ana_${PROCESS_NAME}_${idx}.sh"
-        cat > "$sub_script" << EOF
+        cat >"$sub_script" <<EOF
 #!/usr/bin/env bash
 # Автоматически сгенерировано $(date '+%Y-%m-%d %H:%M:%S')
 cd "${CEPCSW_ROOT}" || { echo "Не удалось перейти в \${CEPCSW_ROOT}"; exit 1; }
@@ -236,17 +236,17 @@ time ./run.sh "${JOB_DIR}/ana_${idx}.py"
 echo "Завершение задания для индекса ${idx}"
 EOF
         chmod +x "$sub_script"
-        
+
         # Подача задания на кластер
         hep_sub -wt long "$sub_script" \
             -o "${LOG_DIR}/ana_${TIMESTAMP}_${PROCESS_NAME}_${idx}.out" \
             -e "${LOG_DIR}/ana_${TIMESTAMP}_${PROCESS_NAME}_${idx}.err"
-        
+
         printf "Задание подано: %5d   %s\n" "$job_counter" "$(basename "$input_file")"
     else
         printf "Сгенерирован скрипт (без подачи): ana_%05d.py\n" "$job_counter"
     fi
-    
+
     ((job_counter++))
 done
 
