@@ -439,6 +439,15 @@ for cos_val in "${COS_CONE_ARRAY[@]}"; do
             log_msg "INFO" "──────────────────────────────────────────────────────────────────────"
             log_msg "INFO" ""
 
+            # ПРОВЕРКА: пропускаем, если файл уже существует
+            MERGED_BASE="merged_${PROCESS_NAME}_cos${cos_val}_trackE${track_energy}GeV_coneE${cone_energy}GeV.root"
+            MERGED_PATH="${TRACK_DIR}/${MERGED_BASE}"
+
+            if [ -f "$MERGED_PATH" ]; then
+                log_msg "INFO" "Файл уже существует, пропускаем комбинацию: $MERGED_PATH"
+                continue # переходим к следующей комбинации без перезапуска
+            fi
+
             # 1. Обновляем шаблон конфигурации
             log_msg "INFO" "Шаг 1: Обновление шаблона конфигурации..."
             if ! update_cosConeAngle_in_template "$cos_val"; then
