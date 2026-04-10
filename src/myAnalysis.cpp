@@ -448,7 +448,7 @@ double myAnalysis::getConeEnergy(const edm4hep::ReconstructedParticle &pfo,
         return 0.0;
 
     for (const auto &other : *allPfos) {
-        if (&other == &pfo)
+        if (other.getObjectID() == pfo.getObjectID())
             continue;
         if (isInvalidPFO(other))
             continue;
