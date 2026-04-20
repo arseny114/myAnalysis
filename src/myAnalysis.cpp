@@ -168,6 +168,10 @@ StatusCode myAnalysis::initialize() {
     myOutputTree->Branch("jetSize", &myEventData.jetSize);
     myOutputTree->Branch("numberJetsInEvent", &myEventData.numberJetsInEvent);
 
+    // Для оценки эффективности алгоритма изоляции
+    myOutputTree->Branch("nLeptonsAboveIsoMinE", &myEventData.nLeptonsAboveIsoMinE);
+    myOutputTree->Branch("nIsolatedLeptons", &myEventData.nIsolatedLeptons);
+
     // Характеристики реконструированных джетов
     myOutputTree->Branch("reconstructedJetConstituentsPfoIdx",
                          &myEventData.reconstructedJetConstituentsPfoIdx);
@@ -213,6 +217,11 @@ StatusCode myAnalysis::execute() {
 
         // Увеличиваем индекс при обработке нового PFO
         pfoIndex++;
+
+        // Для оценкци эффективности алгоритма изоляции
+        if (pfoIsLepton(pfo) && pfo.getEnergy() > myIsoMinTrackEnergy.value()) {
+            myEventData.nLeptonsAboveIsoMinE++;
+        }
 
         // Сохраняем кинематику
         myEventData.pfoE.push_back(pfo.getEnergy());
@@ -266,6 +275,11 @@ StatusCode myAnalysis::execute() {
 
             bool isolated = isIsolatedLepton(pfo, myPfoCollPtr);
             myEventData.isIsolatedLeptonFlag.push_back(isolated ? 1 : 0);
+
+            // Для оценкци эффективности алгоритма изоляции
+            if (isolated) {
+                myEventData.nIsolatedLeptons++;
+            }
         } else {
             // Для не-лептонов или мягких частиц записываем заглушки
             myEventData.leptonConeEnergy.push_back(-1.0);

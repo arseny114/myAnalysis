@@ -57,10 +57,15 @@ public:
         skippedByJets = skippedByIsolatedLepton = 0;
 
         numberJetsInEvent = 0;
+        nLeptonsAboveIsoMinE = 0;
     }
 
     int eventNumber = 0;
-    int numberJetsInEvent = 0;
+    int numberJetsInEvent = nIsolatedLeptons = 0;
+
+    // Для оценки эффективности алгоритма изоляции
+    int nLeptonsAboveIsoMinE = 0;
+    int nIsolatedLeptons = 0;
 
     // Кинематика PFO
     std::vector<double> pfoE, pfoPx, pfoPy, pfoPz;
