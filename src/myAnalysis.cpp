@@ -189,6 +189,7 @@ StatusCode myAnalysis::initialize() {
     myOutputTree->Branch("invariantMassJets", &myEventData.invariantMassJets);
     myOutputTree->Branch("recoilMassAllPFO", &myEventData.recoilMassAllPFO);
     myOutputTree->Branch("recoilMassJets", &myEventData.recoilMassJets);
+    myOutputTree->Branch("cosThetaZ", &myEventData.cosThetaZ);
 
     return StatusCode::SUCCESS;
 }
@@ -326,9 +327,8 @@ StatusCode myAnalysis::execute() {
         // Записываем колличество найденных джетов в событии
         myEventData.numberJetsInEvent = jets.size();
 
-        if (myApplyJetSelection
-                .value()) // отбрасываем события, только если включен режим отбрасывания
-        {
+        // отбрасываем события, только если включен режим отбрасывания
+        if (myApplyJetSelection.value()) {
             // Отсев, если нашлось не 2 джета (TODO: этот отсев нужно переделать)
             if (jets.size() != 2) {
                 myEventData.skippedByJets = 1;
@@ -340,6 +340,7 @@ StatusCode myAnalysis::execute() {
     } else {
         // Exclusive режим: ровно myNumberJets джетов, все частицы присвоены
         jets = fastjet::sorted_by_pt(cs.exclusive_jets(myNumberJets.value()));
+        myEventData.numberJetsInEvent = jets.size();
     }
 
     // Проверка минимального количества частиц во всех джетах
@@ -347,9 +348,8 @@ StatusCode myAnalysis::execute() {
         // Запоминаем размер джета
         myEventData.jetSize.push_back(jet.constituents().size());
 
-        if (myApplyJetSelection
-                .value()) // отбрасываем события, только если включен режим отбрасывания
-        {
+        // отбрасываем события, только если включен режим отбрасывания
+        if (myApplyJetSelection.value()) {
             // Отсев, если в размер джетов меньше требуемого
             if (jet.constituents().size() < myMinConstPerJet.value()) {
                 myEventData.skippedByJets = 1;
@@ -400,6 +400,26 @@ StatusCode myAnalysis::execute() {
     double recoilP2_jets =
         std::pow(summedJets.Px(), 2) + std::pow(summedJets.Py(), 2) + std::pow(summedJets.Pz(), 2);
     myEventData.recoilMassJets = std::sqrt(recoilE_jets * recoilE_jets - recoilP2_jets);
+
+    // ── 5. Расчёт направления реконструированного Z-бозона ─────────────────
+    // Для канала Z → qq: Z реконструируется как сумма двух ведущих джетов
+    if (jets.size() >= 2) {
+        // Суммируем 4-импульсы двух ведущих джетов (отсортированы по pT)
+        TLorentzVector jet1(jets[0].px(), jets[0].py(), jets[0].pz(), jets[0].E());
+        TLorentzVector jet2(jets[1].px(), jets[1].py(), jets[1].pz(), jets[1].E());
+        TLorentzVector zReconstructed = jet1 + jet2;
+
+        // Вычисляем cos(θ) = pZ / |p| относительно оси пучка (ось Z)
+        double pZ_mag = zReconstructed.P(); // Модуль 3-импульса
+        if (pZ_mag > 1e-9) {
+            myEventData.cosThetaZ = zReconstructed.Pz() / pZ_mag;
+        } else {
+            myEventData.cosThetaZ = -999.0; // Неопределено (защита от деления на ноль)
+        }
+    } else {
+        // Если джетов меньше 2, то значение не определено
+        myEventData.cosThetaZ = -999.0;
+    }
 
     // Заполняем дерево и увеличиваем счётчик событий
     myEventData.eventNumber++;

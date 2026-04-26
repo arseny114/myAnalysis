@@ -58,6 +58,7 @@ public:
 
         numberJetsInEvent = 0;
         nLeptonsAboveIsoMinE = 0;
+        cosThetaZ = -999.0;
     }
 
     int eventNumber = 0;
@@ -106,6 +107,7 @@ public:
     double invariantMassJets = 0;
     double recoilMassAllPFO = 0;
     double recoilMassJets = 0;
+    double cosThetaZ = -999.0;
 };
 
 /**
