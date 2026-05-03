@@ -23,91 +23,63 @@
 class EventData {
 public:
     EventData() { reset(); }
-
     void reset() {
+        // PFO kinematics + index
+        eventNumber = 0;
         pfoE.clear();
         pfoPx.clear();
         pfoPy.clear();
         pfoPz.clear();
+        pfoIdx.clear();
         leptonConeEnergy.clear();
         isIsolatedLeptonFlag.clear();
-
         pfoNHitsEcal.clear();
         pfoNHitsHcal.clear();
         pfoNClustersEcal.clear();
         pfoNClustersHcal.clear();
-
-        reconstructedJetConstituentsPfoIdx.clear();
-        reconstructedJetPx.clear();
-        reconstructedJetPy.clear();
-        reconstructedJetPz.clear();
-        reconstructedJetE.clear();
-        reconstructedJetThrust.clear();
-
         isLepton.clear();
         isChargedHadron.clear();
         particleType.clear();
 
-        jetSize.clear();
+        // Inclusive jets
+        nJetsInclusive = 0;
+        inclusiveJetConstituentsPfoIdx.clear();
+        inclusiveJetPx.clear();
+        inclusiveJetPy.clear();
+        inclusiveJetPz.clear();
+        inclusiveJetE.clear();
+        inclusiveJetThrust.clear();
+        inclusiveJetSize.clear();
 
-        pfoTotalE = pfoTotalPx = pfoTotalPy = pfoTotalPz = 0.0;
-        invariantMassAllPFO = invariantMassJets = 0.0;
-        recoilMassAllPFO = recoilMassJets = 0.0;
-
-        skippedByJets = skippedByIsolatedLepton = 0;
-
-        numberJetsInEvent = 0;
-        nLeptonsAboveIsoMinE = 0;
-        cosThetaZ = -999.0;
+        // Exclusive jets
+        nJetsExclusive = 0;
+        exclusiveJetConstituentsPfoIdx.clear();
+        exclusiveJetPx.clear();
+        exclusiveJetPy.clear();
+        exclusiveJetPz.clear();
+        exclusiveJetE.clear();
+        exclusiveJetThrust.clear();
+        exclusiveJetSize.clear();
     }
 
     int eventNumber = 0;
-    int numberJetsInEvent = nIsolatedLeptons = 0;
-
-    // Для оценки эффективности алгоритма изоляции
-    int nLeptonsAboveIsoMinE = 0;
-    int nIsolatedLeptons = 0;
-
-    // Кинематика PFO
     std::vector<double> pfoE, pfoPx, pfoPy, pfoPz;
-    double pfoTotalE = 0, pfoTotalPx = 0, pfoTotalPy = 0, pfoTotalPz = 0;
 
-    // Число хитов и кластеров в детекторах для каждого PFO
-    std::vector<int> pfoNHitsEcal;
-    std::vector<int> pfoNHitsHcal;
-    std::vector<int> pfoNClustersEcal;
-    std::vector<int> pfoNClustersHcal;
+    std::vector<int> pfoIdx, pfoNHitsEcal, pfoNHitsHcal, pfoNClustersEcal, pfoNClustersHcal;
+    std::vector<double> leptonConeEnergy;
+    std::vector<int> isIsolatedLeptonFlag, particleType, isLepton, isChargedHadron;
 
-    // Изоляция лептонов (ветки для отладки)
-    std::vector<double> leptonConeEnergy;  // Энергия в конусе для лептонов
-    std::vector<int> isIsolatedLeptonFlag; // Флаг: 1 = лептон изолирован
+    // Inclusive jets
+    int nJetsInclusive = 0;
+    std::vector<std::vector<int>> inclusiveJetConstituentsPfoIdx;
+    std::vector<double> inclusiveJetPx, inclusiveJetPy, inclusiveJetPz, inclusiveJetE,
+        inclusiveJetThrust, inclusiveJetSize;
 
-    // Было ли пропущено событие из-за изоляции
-    int skippedByIsolatedLepton = 0;
-
-    // Тип частицы (PFO)
-    std::vector<int> particleType;
-    std::vector<int> isLepton;
-    std::vector<int> isChargedHadron;
-
-    // Джеты
-    std::vector<std::vector<int>> reconstructedJetConstituentsPfoIdx;
-    std::vector<double> reconstructedJetPx, reconstructedJetPy, reconstructedJetPz,
-        reconstructedJetE;
-    std::vector<double> reconstructedJetThrust;
-
-    // Было ли пропущено событие из-за условий на джеты
-    int skippedByJets = 0;
-
-    // Количество PFO, которые входят в джет
-    std::vector<int> jetSize;
-
-    // Физические величины
-    double invariantMassAllPFO = 0;
-    double invariantMassJets = 0;
-    double recoilMassAllPFO = 0;
-    double recoilMassJets = 0;
-    double cosThetaZ = -999.0;
+    // Exclusive jets
+    int nJetsExclusive = 0;
+    std::vector<std::vector<int>> exclusiveJetConstituentsPfoIdx;
+    std::vector<double> exclusiveJetPx, exclusiveJetPy, exclusiveJetPz, exclusiveJetE,
+        exclusiveJetThrust, exclusiveJetSize;
 };
 
 /**
@@ -151,17 +123,9 @@ private:
     // Настройки кластеризации джетов
     // =========================================================================
     Gaudi::Property<int> myNumberJets{this, "numberJets", 2};
-    Gaudi::Property<bool> myUseInclusive{this, "useInclusive", true};
     Gaudi::Property<double> myJetR{this, "jetR", 0.5};
     Gaudi::Property<double> myJetP{this, "jetP", 1.0};
     Gaudi::Property<double> myJetPtMin{this, "jetPtMin", 5.0};
-    Gaudi::Property<size_t> myMinConstPerJet{this, "minConstPerJet", 6};
-
-    // =========================================================================
-    // Настройки отбора событий
-    // =========================================================================
-    Gaudi::Property<bool> myApplyJetSelection{this, "applyJetSelection", true};
-    Gaudi::Property<bool> myApplyIsolationSelection{this, "applyIsolationSelection", true};
 
     // =========================================================================
     // Параметры геометрии детектора (для определения ECAL/HCAL)
@@ -220,7 +184,7 @@ private:
     bool isIsolatedLepton(const edm4hep::ReconstructedParticle &pfo,
                           const edm4hep::ReconstructedParticleCollection *allPfos) const;
 
-    void saveJetClusteringResults(const std::vector<fastjet::PseudoJet> &jets);
+    void fillJetData(const std::vector<fastjet::PseudoJet> &jets, bool isInclusive);
 
     bool getPfoCollection();
 

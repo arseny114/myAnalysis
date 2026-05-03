@@ -7,10 +7,7 @@
  * Алгоритм выполняет следующие основные задачи:
  * - чтение реконструированных частиц (PFO)
  * - расчёт изоляции частиц
- * - отсев событий с изолированными лептонами, фотонами и заряженными адронами
- * - кластеризация на джеты с помощью fastjet (теперь инклюзивно по умолчанию)
- * - отсев событий, в которых хотя бы один джет содержит менее 6 частиц
- * - расчёт инвариантной массы и массы отдачи двумя способами
+ * - кластеризация на джеты с помощью fastjet
  */
 
 #include "myAnalysis.h"
@@ -86,21 +83,9 @@ myAnalysis::myAnalysis(const std::string &name, ISvcLocator *pSvcLocator)
     // Настройки кластеризации джетов
     // =========================================================================
     declareProperty("numberJets", myNumberJets, "Желаемое количество джетов");
-    declareProperty("useInclusive", myUseInclusive,
-                    "Использовать inclusive кластеризацию (true) или exclusive (false)");
     declareProperty("jetR", myJetR, "Радиус джета R для ee_genkt_algorithm");
     declareProperty("jetP", myJetP, "Параметр p для ee_genkt_algorithm (1 для kt-like)");
     declareProperty("jetPtMin", myJetPtMin, "Минимальный pT джета для inclusive режима (GeV)");
-    declareProperty("minConstPerJet", myMinConstPerJet,
-                    "Минимальное количество частиц в джете для принятия события");
-
-    // =========================================================================
-    // Настройки отбора событий
-    // =========================================================================
-    declareProperty("applyJetSelection", myApplyJetSelection,
-                    "Применять отбор по джетам (true) или сохранять все (false)");
-    declareProperty("applyIsolationSelection", myApplyIsolationSelection,
-                    "Применять отбор по изоляции (true) или сохранять все (false)");
 
     // =========================================================================
     // Параметры геометрии детектора (для определения ECAL/HCAL)
@@ -134,62 +119,50 @@ StatusCode myAnalysis::initialize() {
 
     myOutputTree = new TTree("outputTree", "Results");
 
-    // Ветки для отдельных PFO
+    // PFO kinematics + index
+    myOutputTree->Branch("pfoIdx", &myEventData.pfoIdx);
     myOutputTree->Branch("pfoE", &myEventData.pfoE);
     myOutputTree->Branch("pfoPx", &myEventData.pfoPx);
     myOutputTree->Branch("pfoPy", &myEventData.pfoPy);
     myOutputTree->Branch("pfoPz", &myEventData.pfoPz);
 
-    // Ветки для числа хитов и кластеров в детекторах (на каждый PFO)
+    // Hit stats
     myOutputTree->Branch("pfoNHitsEcal", &myEventData.pfoNHitsEcal);
     myOutputTree->Branch("pfoNHitsHcal", &myEventData.pfoNHitsHcal);
     myOutputTree->Branch("pfoNClustersEcal", &myEventData.pfoNClustersEcal);
     myOutputTree->Branch("pfoNClustersHcal", &myEventData.pfoNClustersHcal);
 
-    // Суммарные характеристики всех PFO в событии
-    myOutputTree->Branch("pfoTotalE", &myEventData.pfoTotalE);
-    myOutputTree->Branch("pfoTotalPx", &myEventData.pfoTotalPx);
-    myOutputTree->Branch("pfoTotalPy", &myEventData.pfoTotalPy);
-    myOutputTree->Branch("pfoTotalPz", &myEventData.pfoTotalPz);
-
-    // Изоляция (ветки для отладки)
+    // Isolation & particle types
     myOutputTree->Branch("leptonConeEnergy", &myEventData.leptonConeEnergy);
     myOutputTree->Branch("isIsolatedLeptonFlag", &myEventData.isIsolatedLeptonFlag);
-
-    // Было ли отброшено событие из-за изолированного лептона
-    myOutputTree->Branch("skippedByIsolatedLepton", &myEventData.skippedByIsolatedLepton);
-
-    // Какие типы частиц были найдены
     myOutputTree->Branch("particleType", &myEventData.particleType);
     myOutputTree->Branch("isLepton", &myEventData.isLepton);
     myOutputTree->Branch("isChargedHadron", &myEventData.isChargedHadron);
 
-    // Размеры джетов и количество найденных джетов в событии
-    myOutputTree->Branch("jetSize", &myEventData.jetSize);
-    myOutputTree->Branch("numberJetsInEvent", &myEventData.numberJetsInEvent);
+    // Inclusive jets
+    myOutputTree->Branch("nJetsInclusive", &myEventData.nJetsInclusive);
+    myOutputTree->Branch("inclusiveJetConstituentsPfoIdx",
+                         &myEventData.inclusiveJetConstituentsPfoIdx);
+    myOutputTree->Branch("inclusiveJetPx", &myEventData.inclusiveJetPx);
+    myOutputTree->Branch("inclusiveJetPy", &myEventData.inclusiveJetPy);
+    myOutputTree->Branch("inclusiveJetPz", &myEventData.inclusiveJetPz);
+    myOutputTree->Branch("inclusiveJetE", &myEventData.inclusiveJetE);
+    myOutputTree->Branch("inclusiveJetThrust", &myEventData.inclusiveJetThrust);
+    myOutputTree->Branch("inclusiveJetSize", &myEventData.inclusiveJetSize);
 
-    // Для оценки эффективности алгоритма изоляции
-    myOutputTree->Branch("nLeptonsAboveIsoMinE", &myEventData.nLeptonsAboveIsoMinE);
-    myOutputTree->Branch("nIsolatedLeptons", &myEventData.nIsolatedLeptons);
+    // Exclusive jets
+    myOutputTree->Branch("nJetsExclusive", &myEventData.nJetsExclusive);
+    myOutputTree->Branch("exclusiveJetConstituentsPfoIdx",
+                         &myEventData.exclusiveJetConstituentsPfoIdx);
+    myOutputTree->Branch("exclusiveJetPx", &myEventData.exclusiveJetPx);
+    myOutputTree->Branch("exclusiveJetPy", &myEventData.exclusiveJetPy);
+    myOutputTree->Branch("exclusiveJetPz", &myEventData.exclusiveJetPz);
+    myOutputTree->Branch("exclusiveJetE", &myEventData.exclusiveJetE);
+    myOutputTree->Branch("exclusiveJetThrust", &myEventData.exclusiveJetThrust);
+    myOutputTree->Branch("exclusiveJetSize", &myEventData.exclusiveJetSize);
 
-    // Характеристики реконструированных джетов
-    myOutputTree->Branch("reconstructedJetConstituentsPfoIdx",
-                         &myEventData.reconstructedJetConstituentsPfoIdx);
-    myOutputTree->Branch("reconstructedJetPx", &myEventData.reconstructedJetPx);
-    myOutputTree->Branch("reconstructedJetPy", &myEventData.reconstructedJetPy);
-    myOutputTree->Branch("reconstructedJetPz", &myEventData.reconstructedJetPz);
-    myOutputTree->Branch("reconstructedJetE", &myEventData.reconstructedJetE);
-    myOutputTree->Branch("reconstructedJetThrust", &myEventData.reconstructedJetThrust);
-
-    // Было ли отброшено событие из-за условий на джеты
-    myOutputTree->Branch("skippedByJets", &myEventData.skippedByJets);
-
-    // Физические величины, которые нас интересуют
-    myOutputTree->Branch("invariantMassAllPFO", &myEventData.invariantMassAllPFO);
-    myOutputTree->Branch("invariantMassJets", &myEventData.invariantMassJets);
-    myOutputTree->Branch("recoilMassAllPFO", &myEventData.recoilMassAllPFO);
-    myOutputTree->Branch("recoilMassJets", &myEventData.recoilMassJets);
-    myOutputTree->Branch("cosThetaZ", &myEventData.cosThetaZ);
+    // Event counter
+    myOutputTree->Branch("eventNumber", &myEventData.eventNumber);
 
     return StatusCode::SUCCESS;
 }
@@ -218,11 +191,7 @@ StatusCode myAnalysis::execute() {
 
         // Увеличиваем индекс при обработке нового PFO
         pfoIndex++;
-
-        // Для оценкци эффективности алгоритма изоляции
-        if (pfoIsLepton(pfo) && pfo.getEnergy() > myIsoMinTrackEnergy.value()) {
-            myEventData.nLeptonsAboveIsoMinE++;
-        }
+        myEventData.pfoIdx.push_back(pfoIndex);
 
         // Сохраняем кинематику
         myEventData.pfoE.push_back(pfo.getEnergy());
@@ -276,11 +245,6 @@ StatusCode myAnalysis::execute() {
 
             bool isolated = isIsolatedLepton(pfo, myPfoCollPtr);
             myEventData.isIsolatedLeptonFlag.push_back(isolated ? 1 : 0);
-
-            // Для оценкци эффективности алгоритма изоляции
-            if (isolated) {
-                myEventData.nIsolatedLeptons++;
-            }
         } else {
             // Для не-лептонов или мягких частиц записываем заглушки
             myEventData.leptonConeEnergy.push_back(-1.0);
@@ -288,138 +252,16 @@ StatusCode myAnalysis::execute() {
         }
     }
 
-    // Сохраняем суммарный четырёхимпульс всех PFO в событии
-    myEventData.pfoTotalE = totalPFO4Momentum.E();
-    myEventData.pfoTotalPx = totalPFO4Momentum.Px();
-    myEventData.pfoTotalPy = totalPFO4Momentum.Py();
-    myEventData.pfoTotalPz = totalPFO4Momentum.Pz();
-
-    // ── 2. Проверка на изолированные лептоны ────────────────────────────
-    if (myApplyIsolationSelection.value()) {
-        // Проходим по всем лептонам
-        for (size_t i = 0; i < myEventData.isLepton.size(); ++i) {
-            // Проверяем только лептоны
-            if (!myEventData.isLepton[i])
-                continue;
-
-            // Если лептон изолирован, то отбрасываем событие
-            if (myEventData.isIsolatedLeptonFlag[i]) {
-                myEventData.skippedByIsolatedLepton = 1;
-                myEventData.eventNumber++;
-                myOutputTree->Fill();
-                return StatusCode::SUCCESS;
-            }
-        }
-    }
-
-    // ── 3. Кластеризация джетов ───────────────────────────────────
+    // ── 2. Кластеризация джетов ───────────────────────────────────
     fastjet::JetDefinition jet_def(fastjet::ee_genkt_algorithm, myJetR.value(), myJetP.value());
     fastjet::ClusterSequence cs(inputParticles, jet_def);
 
-    std::vector<fastjet::PseudoJet> jets;
+    auto incJets = fastjet::sorted_by_pt(cs.inclusive_jets(myJetPtMin.value()));
+    auto excJets = fastjet::sorted_by_pt(cs.exclusive_jets(myNumberJets.value()));
 
-    // Выбор режима: exclusive или inclusive
-    if (myUseInclusive.value()) {
-        // Inclusive режим: джеты с pT > myJetPtMin, может быть >2 джетов, с неприсвоенными
-        // частицами
-        jets = fastjet::sorted_by_pt(cs.inclusive_jets(myJetPtMin.value()));
-
-        // Записываем колличество найденных джетов в событии
-        myEventData.numberJetsInEvent = jets.size();
-
-        // отбрасываем события, только если включен режим отбрасывания
-        if (myApplyJetSelection.value()) {
-            // Отсев, если нашлось не 2 джета (TODO: этот отсев нужно переделать)
-            if (jets.size() != 2) {
-                myEventData.skippedByJets = 1;
-                myEventData.eventNumber++;
-                myOutputTree->Fill();
-                return StatusCode::SUCCESS;
-            }
-        }
-    } else {
-        // Exclusive режим: ровно myNumberJets джетов, все частицы присвоены
-        jets = fastjet::sorted_by_pt(cs.exclusive_jets(myNumberJets.value()));
-        myEventData.numberJetsInEvent = jets.size();
-    }
-
-    // Проверка минимального количества частиц во всех джетах
-    for (const auto &jet : jets) {
-        // Запоминаем размер джета
-        myEventData.jetSize.push_back(jet.constituents().size());
-
-        // отбрасываем события, только если включен режим отбрасывания
-        if (myApplyJetSelection.value()) {
-            // Отсев, если в размер джетов меньше требуемого
-            if (jet.constituents().size() < myMinConstPerJet.value()) {
-                myEventData.skippedByJets = 1;
-                myEventData.eventNumber++;
-                myOutputTree->Fill();
-                return StatusCode::SUCCESS;
-            }
-        }
-    }
-
-    // Сохраняем информацию о джетах
-    saveJetClusteringResults(jets);
-
-    // ── 4. Расчёт инвариантных масс и масс отдачи ───────────────────────
-    myEventData.invariantMassAllPFO = totalPFO4Momentum.M();
-
-    // Создаём четырёхимпульсы ведущих джетов
-    // Для invariantMassJets и recoilMassJets теперь суммируем все джеты
-    TLorentzVector summedJets(0., 0., 0., 0.);
-    for (const auto &jet : jets) {
-        summedJets += TLorentzVector(jet.px(), jet.py(), jet.pz(), jet.E());
-    }
-
-    // Инвариантная масса системы джетов (масса всех джетов вместе)
-    // Это одна из ключевых наблюдаемых величин в анализе
-    myEventData.invariantMassJets = summedJets.M();
-
-    // Энергия в системе центра масс (обычно 240 ГэВ для CEPC при Z-фабрике)
-    double sqrts = myCenterOfMassEnergy;
-
-    // ── Расчёт массы отдачи по всем PFO (реконструированная полная система) ──
-
-    // Энергия отдачи = полная энергия события минус энергия всех PFO
-    double recoilE_all = sqrts - myEventData.pfoTotalE;
-
-    // Квадрат полного импульса системы всех PFO
-    double recoilP2_all = std::pow(myEventData.pfoTotalPx, 2) +
-                          std::pow(myEventData.pfoTotalPy, 2) + std::pow(myEventData.pfoTotalPz, 2);
-
-    // Масса отдачи = √(E_recoil² - p_recoil²)
-    // В идеале должна быть близка к массе Z-бозона (~91 ГэВ) в процессе e⁺e⁻ → ZH
-    myEventData.recoilMassAllPFO = std::sqrt(recoilE_all * recoilE_all - recoilP2_all);
-
-    // ── Расчёт массы отдачи по джетам (система всех джетов) ──
-
-    // Энергия отдачи = полная энергия минус энергия системы джетов
-    double recoilE_jets = sqrts - summedJets.E();
-    double recoilP2_jets =
-        std::pow(summedJets.Px(), 2) + std::pow(summedJets.Py(), 2) + std::pow(summedJets.Pz(), 2);
-    myEventData.recoilMassJets = std::sqrt(recoilE_jets * recoilE_jets - recoilP2_jets);
-
-    // ── 5. Расчёт направления реконструированного Z-бозона ─────────────────
-    // Для канала Z → qq: Z реконструируется как сумма двух ведущих джетов
-    if (jets.size() >= 2) {
-        // Суммируем 4-импульсы двух ведущих джетов (отсортированы по pT)
-        TLorentzVector jet1(jets[0].px(), jets[0].py(), jets[0].pz(), jets[0].E());
-        TLorentzVector jet2(jets[1].px(), jets[1].py(), jets[1].pz(), jets[1].E());
-        TLorentzVector zReconstructed = jet1 + jet2;
-
-        // Вычисляем cos(θ) = pZ / |p| относительно оси пучка (ось Z)
-        double pZ_mag = zReconstructed.P(); // Модуль 3-импульса
-        if (pZ_mag > 1e-9) {
-            myEventData.cosThetaZ = zReconstructed.Pz() / pZ_mag;
-        } else {
-            myEventData.cosThetaZ = -999.0; // Неопределено (защита от деления на ноль)
-        }
-    } else {
-        // Если джетов меньше 2, то значение не определено
-        myEventData.cosThetaZ = -999.0;
-    }
+    // Заполняем данные для каждого режима через обычную функцию-член
+    fillJetData(incJets, true);  // inclusive-режим
+    fillJetData(excJets, false); // exclusive-режим
 
     // Заполняем дерево и увеличиваем счётчик событий
     myEventData.eventNumber++;
@@ -552,66 +394,64 @@ bool myAnalysis::isIsolatedLepton(const edm4hep::ReconstructedParticle &pfo,
 }
 
 /**
- * @brief Сохраняет основные характеристики найденных джетов в структуру данных события
- *
- * Для каждого джета функция:
- *  - сохраняет индексы всех составляющих его частиц (PFO) через user_index
- *  - вычисляет параметр "thrust" джета — меру коллимированности (насколько хорошо
- *    импульсы составляющих направлены вдоль оси джета)
- *  - сохраняет четырёхимпульс джета (px, py, pz, E)
- *
- * Thrust здесь считается как средневзвешенный косинус угла между импульсом каждой
- * составляющей и направлением джета (нормированный на модуль импульса джета).
- * Значение thrust близкое к 1 — джет очень коллимированный (струя узкая),
- * близкое к 0 — составляющие разлетаются в разные стороны.
+ * @brief Заполняет данные джетов для одного из режимов кластеризации
  */
-void myAnalysis::saveJetClusteringResults(const std::vector<fastjet::PseudoJet> &jets) {
-    // Проходим по всем найденным джетам
+void myAnalysis::fillJetData(const std::vector<fastjet::PseudoJet> &jets, bool isInclusive) {
+    // Выбираем, в какие векторы писать данные, в зависимости от режима
+    std::vector<double> *jetPx =
+        isInclusive ? &myEventData.inclusiveJetPx : &myEventData.exclusiveJetPx;
+    std::vector<double> *jetPy =
+        isInclusive ? &myEventData.inclusiveJetPy : &myEventData.exclusiveJetPy;
+    std::vector<double> *jetPz =
+        isInclusive ? &myEventData.inclusiveJetPz : &myEventData.exclusiveJetPz;
+    std::vector<double> *jetE =
+        isInclusive ? &myEventData.inclusiveJetE : &myEventData.exclusiveJetE;
+    std::vector<double> *jetTh =
+        isInclusive ? &myEventData.inclusiveJetThrust : &myEventData.exclusiveJetThrust;
+    std::vector<double> *jetSz =
+        isInclusive ? &myEventData.inclusiveJetSize : &myEventData.exclusiveJetSize;
+    std::vector<std::vector<int>> *jetIdx = isInclusive
+                                                ? &myEventData.inclusiveJetConstituentsPfoIdx
+                                                : &myEventData.exclusiveJetConstituentsPfoIdx;
+    int *nJets = isInclusive ? &myEventData.nJetsInclusive : &myEventData.nJetsExclusive;
+
+    // Очищаем целевые векторы перед заполнением
+    jetPx->clear();
+    jetPy->clear();
+    jetPz->clear();
+    jetE->clear();
+    jetTh->clear();
+    jetSz->clear();
+    jetIdx->clear();
+    *nJets = static_cast<int>(jets.size());
+
+    // Проходим по всем джетам
     for (const auto &jet : jets) {
-        // Вектор для хранения индексов исходных PFO, входящих в данный джет
-        std::vector<int> constituentsIdx;
+        int sz = static_cast<int>(jet.constituents().size());
+        jetSz->push_back(sz);
 
-        // Переменные для расчёта thrust
-        double thrust = 0.0; // суммарный проекционный вклад
-        double pSum = 0.0;   // сумма модулей импульсов всех составляющих
+        // Сохраняем 4-импульс джета
+        jetPx->push_back(jet.px());
+        jetPy->push_back(jet.py());
+        jetPz->push_back(jet.pz());
+        jetE->push_back(jet.E());
 
-        // Получаем список всех частиц, входящих в этот джет
-        auto cons = jet.constituents();
+        // Расчёт thrust и индексов конституентов
+        double thrust = 0.0, pSum = 0.0;
+        TLorentzVector j4(jet.px(), jet.py(), jet.pz(), jet.E());
+        std::vector<int> cIdx;
 
-        // Проходим по каждой составляющей джета
-        for (const auto &c : cons) {
-            // Сохраняем индекс исходной PFO-частицы (был установлен при создании PseudoJet)
-            constituentsIdx.push_back(c.user_index());
-
-            // Четырёхимпульсы составляющей и самого джета
+        for (const auto &c : jet.constituents()) {
+            cIdx.push_back(c.user_index());
             TLorentzVector c4(c.px(), c.py(), c.pz(), c.E());
-            TLorentzVector j4(jet.px(), jet.py(), jet.pz(), jet.E());
-
-            // Вклад в thrust: |p_const · p_jet| / |p_jet|
-            // Это проекция импульса частицы на направление джета, нормированная
-            // c4.Vect() - трехмерный вектор импульса частицы
-            // c4.Vect().Dot(j4.Vect()) - скалярное произведение двух векторов импульсов (берем от
-            // него abs)
             thrust += std::abs(c4.Vect().Dot(j4.Vect())) / j4.P();
-
-            // Суммируем модули импульсов для последующей нормировки
             pSum += c4.P();
         }
-
-        // Нормируем thrust на суммарный импульс составляющих
-        // Защита от деления на ноль (хотя в реальных джетах pSum почти никогда не бывает нулевым)
         if (pSum > 1e-9)
             thrust /= pSum;
-        else
-            thrust = 0.0;
 
-        // Сохраняем все характеристики текущего джета в структуру данных события
-        myEventData.reconstructedJetConstituentsPfoIdx.push_back(std::move(constituentsIdx));
-        myEventData.reconstructedJetPx.push_back(jet.px());
-        myEventData.reconstructedJetPy.push_back(jet.py());
-        myEventData.reconstructedJetPz.push_back(jet.pz());
-        myEventData.reconstructedJetE.push_back(jet.E());
-        myEventData.reconstructedJetThrust.push_back(thrust);
+        jetTh->push_back(thrust);
+        jetIdx->push_back(std::move(cIdx));
     }
 }
 
