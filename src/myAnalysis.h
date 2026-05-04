@@ -101,7 +101,6 @@ private:
     // =========================================================================
     Gaudi::Property<std::string> myOutputFileName{this, "outputRootFile", "analysis_output.root"};
     Gaudi::Property<double> myCenterOfMassEnergy{this, "centerOfMassEnergy", 240.0};
-    Gaudi::Property<double> myPfoEnergyMin{this, "pfoEnergyMin", 0.5};
 
     // =========================================================================
     // Настройки изоляции лептонов (ILC-style, по энергии в конусе)

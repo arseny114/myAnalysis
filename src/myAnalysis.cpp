@@ -52,8 +52,6 @@ myAnalysis::myAnalysis(const std::string &name, ISvcLocator *pSvcLocator)
     declareProperty("outputRootFile", myOutputFileName, "Имя выходного ROOT-файла");
     declareProperty("centerOfMassEnergy", myCenterOfMassEnergy,
                     "Полная энергия в системе центра масс (ГэВ)");
-    declareProperty("pfoEnergyMin", myPfoEnergyMin,
-                    "Минимальная энергия PFO для кластеризации джетов (GeV)");
 
     // =========================================================================
     // Настройки изоляции лептонов (ILC-style, по энергии в конусе)
@@ -226,10 +224,6 @@ StatusCode myAnalysis::execute() {
         totalPFO4Momentum += TLorentzVector(pfo.getMomentum()[0], pfo.getMomentum()[1],
                                             pfo.getMomentum()[2], pfo.getEnergy());
 
-        // Если частица слишком мягкая, то она не будет участвовать в джет кластеринге
-        if (pfo.getEnergy() < myPfoEnergyMin.value())
-            continue;
-
         // Готовим частицу для кластеризации
         // emplace_back() это эффективный способ добавления в конец вектора
         // (он также создает объект PseudoJet с переданными параметрами импульса)
@@ -239,7 +233,7 @@ StatusCode myAnalysis::execute() {
         inputParticles.back().set_user_index(pfoIndex);
 
         // Считаем изоляцию только для лептонов
-        if (pfoIsLepton(pfo) && pfo.getEnergy() >= myPfoEnergyMin.value()) {
+        if (pfoIsLepton(pfo)) {
             double coneEnergy = getConeEnergy(pfo, myPfoCollPtr);
             myEventData.leptonConeEnergy.push_back(coneEnergy);
 
