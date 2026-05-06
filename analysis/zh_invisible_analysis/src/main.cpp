@@ -70,6 +70,49 @@ double calculateRecoilMass(const TLorentzVector &system, double sqrtS) {
     return (recoilMass2 > 0) ? std::sqrt(recoilMass2) : 0.0;
 }
 
+// Вычисление псевдобыстроты η из четырёхвектора
+// η = 0.5 * ln[(|p| + pz) / (|p| - pz)]
+double calculatePseudorapidity(const TLorentzVector &vec) {
+    double p = vec.P();
+    double pz = vec.Pz();
+    if (p <= 1e-9)
+        return 0.0;
+    if (std::abs(pz) >= p)
+        return (pz > 0) ? 10.0 : -10.0;
+    return 0.5 * std::log((p + pz) / (p - pz));
+}
+
+// Вычисление полярного угла θ из четырёхвектора
+// θ = arccos(pz / |p|)
+double calculatePolarAngle(const TLorentzVector &vec) {
+    double p = vec.P();
+    double pz = vec.Pz();
+    if (p <= 1e-9)
+        return 0.0;
+    double cosTheta = pz / p;
+    cosTheta = std::max(-1.0, std::min(1.0, cosTheta)); // защита от численных ошибок
+    return std::acos(cosTheta);
+}
+
+// Вычисление ΔR между двумя четырёхвекторами
+// ΔR = sqrt( (Δη)² + (Δφ)² )
+double calculateDeltaR(const TLorentzVector &v1, const TLorentzVector &v2) {
+    double eta1 = calculatePseudorapidity(v1);
+    double eta2 = calculatePseudorapidity(v2);
+    double phi1 = v1.Phi();
+    double phi2 = v2.Phi();
+
+    // Учёт периодичности φ: Δφ ∈ [-π, π]
+    double dPhi = phi1 - phi2;
+    while (dPhi > M_PI)
+        dPhi -= 2 * M_PI;
+    while (dPhi < -M_PI)
+        dPhi += 2 * M_PI;
+
+    double dEta = eta1 - eta2;
+    return std::sqrt(dEta * dEta + dPhi * dPhi);
+}
+
 // Проверка наличия изолированных лептонов в событии
 bool hasIsolatedLepton(const std::vector<int> *flags) {
     if (!flags)
@@ -97,9 +140,9 @@ bool hasHighEnergyPhoton(const std::vector<int> *particleTypes,
     return false;
 }
 
-// Отрисовка 1D гистограммы с маркерами масс
+// Отрисовка 1D гистограммы с линиями маркерами
 void drawHistogram1D(TH1F *hist, const std::string &canvasTitle, const std::string &xTitle,
-                     const std::string &outputFile, double markMass = -1,
+                     const std::string &outputFile, double markLine = -1,
                      const std::string &markLabel = "", Color_t markColor = kRed,
                      int lineWidth = 2) {
     TCanvas *c = new TCanvas(canvasTitle.c_str(), canvasTitle.c_str(), 900, 700);
@@ -118,7 +161,7 @@ void drawHistogram1D(TH1F *hist, const std::string &canvasTitle, const std::stri
     hist->SetLineWidth(lineWidth);
     hist->Draw("HIST");
 
-    if (markMass > 0) {
+    if (markLine > 0) {
         double ymin = hist->GetMinimum();
         double ymax = hist->GetMaximum();
         if (gPad->GetLogy()) {
@@ -126,13 +169,13 @@ void drawHistogram1D(TH1F *hist, const std::string &canvasTitle, const std::stri
             ymax *= 10;
         }
 
-        TLine *line = new TLine(markMass, ymin, markMass, ymax);
+        TLine *line = new TLine(markLine, ymin, markLine, ymax);
         line->SetLineColor(markColor);
         line->SetLineWidth(2);
         line->SetLineStyle(kDashed);
         line->Draw();
 
-        TLatex *label = new TLatex(markMass + 3, ymax * 0.9, markLabel.c_str());
+        TLatex *label = new TLatex(markLine + 3, ymax * 0.9, markLabel.c_str());
         label->SetTextColor(markColor);
         label->SetTextSize(0.035);
         label->SetTextAlign(12);
@@ -329,6 +372,8 @@ int main(int argc, char *argv[]) {
     const std::string OUTPUT_INV_MASS = makeOutputPath("inv_mass_2jets");
     const std::string OUTPUT_RECOIL_MASS = makeOutputPath("recoil_mass_2jets");
     const std::string OUTPUT_2D_CORR = makeOutputPath("inv_vs_recoil_2d");
+    const std::string OUTPUT_THETA_Z = makeOutputPath("theta_Z_polar_angle");
+    const std::string OUTPUT_DELTA_R = makeOutputPath("deltaR_jet1_jet2");
 
     // Инициализация ROOT
     gStyle->SetOptStat(1111);
@@ -388,6 +433,15 @@ int main(int argc, char *argv[]) {
         "h2D_Correlation", "Invariant Mass vs Recoil Mass;M_{jj} [GeV];M_{recoil} [GeV]", MASS_BINS,
         MASS_MIN_GEV, MASS_MAX_GEV, RECOIL_BINS, RECOIL_MIN_GEV, RECOIL_MAX_GEV);
 
+    TH1F *hThetaZ =
+        new TH1F("hThetaZ", "Polar Angle of Z Boson (Two-Jet System);#theta_{Z} [rad];Events",
+                 THETA_BINS, THETA_MIN_RAD, THETA_MAX_RAD);
+
+    TH1F *hDeltaR = new TH1F("hDeltaR",
+                             "Distance #Delta R Between Two Jets;#Delta R = #sqrt{#Delta#eta^{2} + "
+                             "#Delta#phi^{2}};Events",
+                             DELTA_R_BINS, DELTA_R_MIN, DELTA_R_MAX);
+
     // Статистика прохождения катов
     CutStatistics stats;
 
@@ -437,6 +491,10 @@ int main(int argc, char *argv[]) {
         double invMass = dijet.M();
         double recoilMass = calculateRecoilMass(dijet, SQRT_S_GEV);
 
+        // Расчёт θ и ΔR
+        double thetaZ = calculatePolarAngle(dijet);  // полярный угол системы двух джетов
+        double deltaR = calculateDeltaR(jet1, jet2); // расстояние между джетами
+
         // Cut 5: Окно массы Z-бозона (опционально)
         if (APPLY_Z_MASS_WINDOW) {
             if (invMass < Z_MASS_WINDOW_MIN_GEV || invMass > Z_MASS_WINDOW_MAX_GEV) {
@@ -449,6 +507,8 @@ int main(int argc, char *argv[]) {
         hInvMass->Fill(invMass);
         hRecoilMass->Fill(recoilMass);
         h2D_Correlation->Fill(invMass, recoilMass);
+        hThetaZ->Fill(thetaZ);
+        hDeltaR->Fill(deltaR);
 
         stats.finalSelected++;
     }
@@ -477,10 +537,16 @@ int main(int argc, char *argv[]) {
     drawHistogram2D(h2D_Correlation, "c2D_Correlation", "M_{jj} [GeV]", "M_{recoil} [GeV]",
                     OUTPUT_2D_CORR, MZ_GEV, MH_GEV, "M_{Z}", "M_{H}");
 
+    drawHistogram1D(hThetaZ, "cThetaZ", "#theta_{Z} [rad]", OUTPUT_THETA_Z, -1, "", kGreen + 2, 2);
+
+    drawHistogram1D(hDeltaR, "cDeltaR", "#Delta R", OUTPUT_DELTA_R, -1, "", kMagenta, 2);
+
     // Очистка памяти
     delete hInvMass;
     delete hRecoilMass;
     delete h2D_Correlation;
+    delete hThetaZ;
+    delete hDeltaR;
     inputFile->Close();
     delete inputFile;
 

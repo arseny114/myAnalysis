@@ -41,6 +41,15 @@ const int RECOIL_BINS = 200;
 const double RECOIL_MIN_GEV = 0.0;
 const double RECOIL_MAX_GEV = 250.0;
 
+// Параметры для гистограмм угловых распределений
+const int THETA_BINS = 100;
+const double THETA_MIN_RAD = 0.0;
+const double THETA_MAX_RAD = 3.14159; // π
+
+const int DELTA_R_BINS = 100;
+const double DELTA_R_MIN = 0.0;
+const double DELTA_R_MAX = 5.0;
+
 // Массы частиц и энергия столкновения
 const double MZ_GEV = 91.2;
 const double MH_GEV = 125.26;
