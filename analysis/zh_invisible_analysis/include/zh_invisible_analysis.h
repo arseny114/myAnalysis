@@ -1,0 +1,103 @@
+// include/zh_invisible_analysis.h
+#ifndef ZH_INVISIBLE_ANALYSIS_H
+#define ZH_INVISIBLE_ANALYSIS_H
+
+#include <string>
+
+// =============================================================================
+// НАСТРОЙКИ ОТБОРА
+// =============================================================================
+
+// Вето на изолированные лептоны
+#define APPLY_LEPTON_VETO true
+
+// Вето на высокоэнергетические фотоны
+#define APPLY_PHOTON_VETO true
+#define PHOTON_ENERGY_CUT_GEV 30.0 // Порог энергии фотона для вето
+
+// Требование ровно 2 джета в инклюзивном режиме
+#define REQUIRE_EXACTLY_TWO_INCLUSIVE_JETS true
+
+// Требование минимального числа конституентов в каждом из двух джетов
+#define REQUIRE_MIN_CONSTITUENTS_PER_JET true
+#define MIN_CONSTITUENTS_PER_JET 6
+
+// Окно массы Z-бозона для отбора (опционально)
+#define APPLY_Z_MASS_WINDOW false
+#define Z_MASS_WINDOW_MIN_GEV 70.0
+#define Z_MASS_WINDOW_MAX_GEV 110.0
+
+// =============================================================================
+// ПАРАМЕТРЫ ФИЗИКИ И ГИСТОГРАММ
+// =============================================================================
+
+const std::string TREE_NAME = "outputTree";
+
+const int MASS_BINS = 200;
+const double MASS_MIN_GEV = 0.0;
+const double MASS_MAX_GEV = 250.0;
+
+const int RECOIL_BINS = 200;
+const double RECOIL_MIN_GEV = 0.0;
+const double RECOIL_MAX_GEV = 250.0;
+
+// Массы частиц и энергия столкновения
+const double MZ_GEV = 91.2;
+const double MH_GEV = 125.26;
+const double SQRT_S_GEV = 240.0;
+
+// PDG коды частиц
+const int PDG_PHOTON = 22;
+const int PDG_ELECTRON = 11;
+const int PDG_MUON = 13;
+
+// =============================================================================
+// НАСТРОЙКИ ВЫВОДА И ЛОГИРОВАНИЯ
+// =============================================================================
+
+const std::string OUTPUT_BASE_DIR = "../pdf_results";
+
+const int LOG_INTERVAL_EVENTS = 1000;
+const bool LOG_PERCENTAGE = true;
+const bool PRINT_CUT_STATISTICS = true;
+
+// =============================================================================
+// СТРУКТУРА ДЛЯ СТАТИСТИКИ ПРОХОЖДЕНИЯ КАТОВ
+// =============================================================================
+
+struct CutStatistics {
+    Long64_t totalEvents = 0;
+    Long64_t afterLeptonVeto = 0;
+    Long64_t afterPhotonVeto = 0;
+    Long64_t afterJetCount = 0;
+    Long64_t afterConstituents = 0;
+    Long64_t afterZWindow = 0;
+    Long64_t finalSelected = 0;
+
+    void print(const std::string &processName) const {
+        if (!PRINT_CUT_STATISTICS)
+            return;
+        std::cout << "\n═══════════════════════════════════════════════════" << std::endl;
+        std::cout << "Статистика отбора для процесса: " << processName << std::endl;
+        std::cout << "═══════════════════════════════════════════════════" << std::endl;
+        std::cout << "Всего событий:                    " << totalEvents << std::endl;
+        std::cout << "После lepton veto:                " << afterLeptonVeto << " ("
+                  << 100.0 * afterLeptonVeto / totalEvents << "%)" << std::endl;
+        std::cout << "После photon veto:                " << afterPhotonVeto << " ("
+                  << 100.0 * afterPhotonVeto / totalEvents << "%)" << std::endl;
+        std::cout << "После требования 2 джетов:        " << afterJetCount << " ("
+                  << 100.0 * afterJetCount / totalEvents << "%)" << std::endl;
+        std::cout << "После требования конституентов:   " << afterConstituents << " ("
+                  << 100.0 * afterConstituents / totalEvents << "%)" << std::endl;
+        if (APPLY_Z_MASS_WINDOW) {
+            std::cout << "После Z mass window:              " << afterZWindow << " ("
+                      << 100.0 * afterZWindow / totalEvents << "%)" << std::endl;
+        }
+        std::cout << "───────────────────────────────────────────────────" << std::endl;
+        std::cout << "ФИНАЛЬНО ОТОБРАНО:                  " << finalSelected << " ("
+                  << 100.0 * finalSelected / totalEvents << "%)" << std::endl;
+        std::cout << "═══════════════════════════════════════════════════\n" << std::endl;
+    }
+};
+
+#endif // ZH_INVISIBLE_ANALYSIS_H
