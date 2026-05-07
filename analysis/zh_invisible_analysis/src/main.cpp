@@ -5,7 +5,8 @@
 // 2. Veto на высокоэнергетические фотоны
 // 3. Требование ровно 2 инклюзивных джета
 // 4. Требование минимального числа конституентов в каждом джете (через inclusiveJetSize)
-// 5. (Опционально) Окно массы Z-бозона
+// 5. Окно по инвариантной массе диджетов
+// 5. Окно по массе отдачи
 //
 // Строит гистограммы:
 // - Инвариантная масса двух джетов
@@ -495,13 +496,22 @@ int main(int argc, char *argv[]) {
         double thetaZ = calculatePolarAngle(dijet);  // полярный угол системы двух джетов
         double deltaR = calculateDeltaR(jet1, jet2); // расстояние между джетами
 
-        // Cut 5: Окно массы Z-бозона (опционально)
-        if (APPLY_Z_MASS_WINDOW) {
-            if (invMass < Z_MASS_WINDOW_MIN_GEV || invMass > Z_MASS_WINDOW_MAX_GEV) {
+        // Cut 5: Окно инвариантной массы диджета
+        if (APPLY_DIJET_MASS_WINDOW) {
+            if (invMass < DIJET_MASS_WINDOW_MIN_GEV || invMass > DIJET_MASS_WINDOW_MAX_GEV) {
                 continue;
             }
         }
-        stats.afterZWindow++;
+        stats.afterDijetMassWindow++;
+
+        // Cut 6: Окно массы отдачи
+        if (APPLY_RECOIL_MASS_WINDOW) {
+            if (recoilMass < RECOIL_MASS_WINDOW_MIN_GEV ||
+                recoilMass > RECOIL_MASS_WINDOW_MAX_GEV) {
+                continue;
+            }
+        }
+        stats.afterRecoilMassWindow++;
 
         // Заполнение гистограмм
         hInvMass->Fill(invMass);

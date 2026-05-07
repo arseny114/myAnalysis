@@ -22,10 +22,15 @@
 #define REQUIRE_MIN_CONSTITUENTS_PER_JET true
 #define MIN_CONSTITUENTS_PER_JET 6
 
-// Окно массы Z-бозона для отбора (опционально)
-#define APPLY_Z_MASS_WINDOW false
-#define Z_MASS_WINDOW_MIN_GEV 70.0
-#define Z_MASS_WINDOW_MAX_GEV 110.0
+// Окно инвариантной массы диджета (ГэВ)
+#define APPLY_DIJET_MASS_WINDOW true
+#define DIJET_MASS_WINDOW_MIN_GEV 65.0
+#define DIJET_MASS_WINDOW_MAX_GEV 110.0
+
+// Окно массы отдачи (ГэВ)
+#define APPLY_RECOIL_MASS_WINDOW true
+#define RECOIL_MASS_WINDOW_MIN_GEV 110.0
+#define RECOIL_MASS_WINDOW_MAX_GEV 165.0
 
 // =============================================================================
 // ПАРАМЕТРЫ ФИЗИКИ И ГИСТОГРАММ
@@ -80,7 +85,8 @@ struct CutStatistics {
     Long64_t afterPhotonVeto = 0;
     Long64_t afterJetCount = 0;
     Long64_t afterConstituents = 0;
-    Long64_t afterZWindow = 0;
+    Long64_t afterDijetMassWindow = 0;
+    Long64_t afterRecoilMassWindow = 0;
     Long64_t finalSelected = 0;
 
     void print(const std::string &processName) const {
@@ -98,9 +104,13 @@ struct CutStatistics {
                   << 100.0 * afterJetCount / totalEvents << "%)" << std::endl;
         std::cout << "После требования конституентов:   " << afterConstituents << " ("
                   << 100.0 * afterConstituents / totalEvents << "%)" << std::endl;
-        if (APPLY_Z_MASS_WINDOW) {
-            std::cout << "После Z mass window:              " << afterZWindow << " ("
-                      << 100.0 * afterZWindow / totalEvents << "%)" << std::endl;
+        if (APPLY_DIJET_MASS_WINDOW) {
+            std::cout << "После окна массы диджета (65-110 ГэВ): " << afterDijetMassWindow << " ("
+                      << 100.0 * afterDijetMassWindow / totalEvents << "%)" << std::endl;
+        }
+        if (APPLY_RECOIL_MASS_WINDOW) {
+            std::cout << "После окна массы отдачи (110-165 ГэВ): " << afterRecoilMassWindow << " ("
+                      << 100.0 * afterRecoilMassWindow / totalEvents << "%)" << std::endl;
         }
         std::cout << "───────────────────────────────────────────────────" << std::endl;
         std::cout << "ФИНАЛЬНО ОТОБРАНО:                  " << finalSelected << " ("
