@@ -6,12 +6,15 @@
 // 3. Требование ровно 2 инклюзивных джета
 // 4. Требование минимального числа конституентов в каждом джете (через inclusiveJetSize)
 // 5. Окно по инвариантной массе диджетов
-// 5. Окно по массе отдачи
+// 6. Окно по массе отдачи
 //
 // Строит гистограммы:
 // - Инвариантная масса двух джетов
 // - Масса отдачи двух джетов
+// - Полярный угол системы двух джетов
+// - Расстояние deltaR между джетами
 // - 2D распределение: инвариантная масса vs масса отдачи
+// - 2D распределение: E_photon(>PHOTON_ENERGY_CUT_GEV) vs M_recoil
 
 #include <TCanvas.h>
 #include <TFile.h>
@@ -375,6 +378,7 @@ int main(int argc, char *argv[]) {
     const std::string OUTPUT_2D_CORR = makeOutputPath("inv_vs_recoil_2d");
     const std::string OUTPUT_THETA_Z = makeOutputPath("theta_Z_polar_angle");
     const std::string OUTPUT_DELTA_R = makeOutputPath("deltaR_jet1_jet2");
+    const std::string OUTPUT_PHOTON_E_VS_RECOIL = makeOutputPath("photonE_vs_recoil_2d");
 
     // Инициализация ROOT
     gStyle->SetOptStat(1111);
@@ -443,6 +447,12 @@ int main(int argc, char *argv[]) {
                              "#Delta#phi^{2}};Events",
                              DELTA_R_BINS, DELTA_R_MIN, DELTA_R_MAX);
 
+    TH2F *hPhotonE_vs_Recoil =
+        new TH2F("hPhotonE_vs_Recoil",
+                 "Photon Energy vs Recoil Mass (pre-veto);E_{#gamma} [GeV];M_{recoil} [GeV]",
+                 PHOTON_E_BINS, PHOTON_E_MIN_GEV, PHOTON_E_MAX_GEV, RECOIL_MASS_2D_BINS,
+                 RECOIL_MASS_2D_MIN_GEV, RECOIL_MASS_2D_MAX_GEV);
+
     // Статистика прохождения катов
     CutStatistics stats;
 
@@ -461,19 +471,13 @@ int main(int argc, char *argv[]) {
         }
         stats.afterLeptonVeto++;
 
-        // Cut 2: Veto на высокоэнергетические фотоны
-        if (APPLY_PHOTON_VETO && hasHighEnergyPhoton(particleType, pfoE, photonEnergyCut)) {
-            continue;
-        }
-        stats.afterPhotonVeto++;
-
-        // Cut 3: Требование ровно 2 инклюзивных джета
+        // Cut 2: Требование ровно 2 инклюзивных джета
         if (REQUIRE_EXACTLY_TWO_INCLUSIVE_JETS && inclJetE->size() != 2) {
             continue;
         }
         stats.afterJetCount++;
 
-        // Cut 4: Требование минимального числа конституентов в каждом из двух джетов
+        // Cut 3: Требование минимального числа конституентов в каждом из двух джетов
         if (REQUIRE_MIN_CONSTITUENTS_PER_JET) {
             int nConst1 = static_cast<int>(inclJetSize->at(0));
             int nConst2 = static_cast<int>(inclJetSize->at(1));
@@ -495,6 +499,23 @@ int main(int argc, char *argv[]) {
         // Расчёт θ и ΔR
         double thetaZ = calculatePolarAngle(dijet);  // полярный угол системы двух джетов
         double deltaR = calculateDeltaR(jet1, jet2); // расстояние между джетами
+
+        // Заполнение 2D гистограммы E_photon vs M_recoil (до photon veto)
+        if (particleType && pfoE && particleType->size() == pfoE->size()) {
+            for (size_t ip = 0; ip < particleType->size(); ++ip) {
+                // Проверяем, что это фотон и его энергия выше порога
+                if (std::abs(particleType->at(ip)) == PDG_PHOTON &&
+                    pfoE->at(ip) > PHOTON_ENERGY_CUT_GEV) {
+                    hPhotonE_vs_Recoil->Fill(pfoE->at(ip), recoilMass);
+                }
+            }
+        }
+
+        // Cut 4: Veto на высокоэнергетические фотоны
+        if (APPLY_PHOTON_VETO && hasHighEnergyPhoton(particleType, pfoE, photonEnergyCut)) {
+            continue;
+        }
+        stats.afterPhotonVeto++;
 
         // Cut 5: Окно инвариантной массы диджета
         if (APPLY_DIJET_MASS_WINDOW) {
@@ -551,12 +572,16 @@ int main(int argc, char *argv[]) {
 
     drawHistogram1D(hDeltaR, "cDeltaR", "#Delta R", OUTPUT_DELTA_R, -1, "", kMagenta, 2);
 
+    drawHistogram2D(hPhotonE_vs_Recoil, "cPhotonE_vs_Recoil", "E_{#gamma} [GeV] (pre-veto)",
+                    "M_{recoil} [GeV]", OUTPUT_PHOTON_E_VS_RECOIL, -1, -1, "", "");
+
     // Очистка памяти
     delete hInvMass;
     delete hRecoilMass;
     delete h2D_Correlation;
     delete hThetaZ;
     delete hDeltaR;
+    delete hPhotonE_vs_Recoil;
     inputFile->Close();
     delete inputFile;
 

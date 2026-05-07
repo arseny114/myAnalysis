@@ -38,23 +38,6 @@
 
 const std::string TREE_NAME = "outputTree";
 
-const int MASS_BINS = 200;
-const double MASS_MIN_GEV = 0.0;
-const double MASS_MAX_GEV = 250.0;
-
-const int RECOIL_BINS = 200;
-const double RECOIL_MIN_GEV = 0.0;
-const double RECOIL_MAX_GEV = 250.0;
-
-// Параметры для гистограмм угловых распределений
-const int THETA_BINS = 100;
-const double THETA_MIN_RAD = 0.0;
-const double THETA_MAX_RAD = 3.14159; // π
-
-const int DELTA_R_BINS = 100;
-const double DELTA_R_MIN = 0.0;
-const double DELTA_R_MAX = 5.0;
-
 // Массы частиц и энергия столкновения
 const double MZ_GEV = 91.2;
 const double MH_GEV = 125.26;
@@ -64,6 +47,32 @@ const double SQRT_S_GEV = 240.0;
 const int PDG_PHOTON = 22;
 const int PDG_ELECTRON = 11;
 const int PDG_MUON = 13;
+
+const int MASS_BINS = 200;
+const double MASS_MIN_GEV = 0.0;
+const double MASS_MAX_GEV = 250.0;
+
+const int RECOIL_BINS = 200;
+const double RECOIL_MIN_GEV = 0.0;
+const double RECOIL_MAX_GEV = 250.0;
+
+// Параметры для 2D гистограммы: E_photon vs M_recoil
+const int PHOTON_E_BINS = 100;
+const double PHOTON_E_MIN_GEV = PHOTON_ENERGY_CUT_GEV;
+const double PHOTON_E_MAX_GEV = SQRT_S_GEV;
+
+const int RECOIL_MASS_2D_BINS = 200;
+const double RECOIL_MASS_2D_MIN_GEV = 0.0;
+const double RECOIL_MASS_2D_MAX_GEV = 250.0;
+
+// Параметры для гистограмм угловых распределений
+const int THETA_BINS = 100;
+const double THETA_MIN_RAD = 0.0;
+const double THETA_MAX_RAD = 3.14159; // π
+
+const int DELTA_R_BINS = 100;
+const double DELTA_R_MIN = 0.0;
+const double DELTA_R_MAX = 5.0;
 
 // =============================================================================
 // НАСТРОЙКИ ВЫВОДА И ЛОГИРОВАНИЯ
@@ -98,12 +107,12 @@ struct CutStatistics {
         std::cout << "Всего событий:                    " << totalEvents << std::endl;
         std::cout << "После lepton veto:                " << afterLeptonVeto << " ("
                   << 100.0 * afterLeptonVeto / totalEvents << "%)" << std::endl;
-        std::cout << "После photon veto:                " << afterPhotonVeto << " ("
-                  << 100.0 * afterPhotonVeto / totalEvents << "%)" << std::endl;
         std::cout << "После требования 2 джетов:        " << afterJetCount << " ("
                   << 100.0 * afterJetCount / totalEvents << "%)" << std::endl;
         std::cout << "После требования конституентов:   " << afterConstituents << " ("
                   << 100.0 * afterConstituents / totalEvents << "%)" << std::endl;
+        std::cout << "После photon veto:                " << afterPhotonVeto << " ("
+                  << 100.0 * afterPhotonVeto / totalEvents << "%)" << std::endl;
         if (APPLY_DIJET_MASS_WINDOW) {
             std::cout << "После окна массы диджета (65-110 ГэВ): " << afterDijetMassWindow << " ("
                       << 100.0 * afterDijetMassWindow / totalEvents << "%)" << std::endl;
