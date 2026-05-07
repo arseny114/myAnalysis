@@ -144,6 +144,72 @@ bool hasHighEnergyPhoton(const std::vector<int> *particleTypes,
     return false;
 }
 
+// Вычисление энергии в конусе вокруг произвольной PFO (исключая саму частицу)
+double calculateConeEnergy(size_t centerIdx, const std::vector<double> *pfoE,
+                           const std::vector<double> *pfoPx, const std::vector<double> *pfoPy,
+                           const std::vector<double> *pfoPz, double cosConeCut) {
+    if (!pfoE || !pfoPx || !pfoPy || !pfoPz)
+        return 0.0;
+    if (centerIdx >= pfoE->size())
+        return 0.0;
+
+    double coneE = 0.0;
+    double px1 = pfoPx->at(centerIdx);
+    double py1 = pfoPy->at(centerIdx);
+    double pz1 = pfoPz->at(centerIdx);
+    double p1 = std::sqrt(px1 * px1 + py1 * py1 + pz1 * pz1);
+
+    if (p1 < 1e-9)
+        return 0.0; // защита от деления на ноль
+
+    for (size_t i = 0; i < pfoE->size(); ++i) {
+        if (i == centerIdx)
+            continue; // исключаем саму центральную частицу
+
+        double px2 = pfoPx->at(i);
+        double py2 = pfoPy->at(i);
+        double pz2 = pfoPz->at(i);
+        double p2 = std::sqrt(px2 * px2 + py2 * py2 + pz2 * pz2);
+        if (p2 < 1e-9)
+            continue;
+
+        // Вычисляем косинус угла между импульсами
+        double cosTheta = (px1 * px2 + py1 * py2 + pz1 * pz2) / (p1 * p2);
+        // Защита от численных ошибок (косинус может выйти за [-1, 1])
+        cosTheta = std::max(-1.0, std::min(1.0, cosTheta));
+
+        if (cosTheta >= cosConeCut) {
+            coneE += pfoE->at(i);
+        }
+    }
+    return coneE;
+}
+
+// Проверка наличия изолированных фотонов
+bool hasIsolatedPhoton(const std::vector<int> *particleTypes, const std::vector<double> *pfoE,
+                       const std::vector<double> *pfoPx, const std::vector<double> *pfoPy,
+                       const std::vector<double> *pfoPz, double minEnergy, double cosConeCut,
+                       double maxConeEnergy) {
+    if (!particleTypes || !pfoE || !pfoPx || !pfoPy || !pfoPz)
+        return false;
+    if (particleTypes->size() != pfoE->size())
+        return false;
+
+    for (size_t i = 0; i < particleTypes->size(); ++i) {
+        // Проверяем, что это фотон и его энергия выше порога
+        if (std::abs(particleTypes->at(i)) == PDG_PHOTON && pfoE->at(i) > minEnergy) {
+            // Вычисляем энергию в конусе вокруг фотона
+            double coneE = calculateConeEnergy(i, pfoE, pfoPx, pfoPy, pfoPz, cosConeCut);
+
+            // Фотон считается изолированным, если энергия в конусе меньше порога
+            if (coneE < maxConeEnergy) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
 // Отрисовка 1D гистограммы с линиями маркерами
 void drawHistogram1D(TH1F *hist, const std::string &canvasTitle, const std::string &xTitle,
                      const std::string &outputFile, double markLine = -1,
@@ -417,13 +483,19 @@ int main(int argc, char *argv[]) {
     std::vector<int> *isIsolatedLeptonFlag = nullptr;
     std::vector<int> *particleType = nullptr;
     std::vector<double> *pfoE = nullptr;
+    std::vector<double> *pfoPx = nullptr;
+    std::vector<double> *pfoPy = nullptr;
+    std::vector<double> *pfoPz = nullptr;
 
     if (APPLY_LEPTON_VETO) {
         tree->SetBranchAddress("isIsolatedLeptonFlag", &isIsolatedLeptonFlag);
     }
-    if (APPLY_PHOTON_VETO) {
+    if (APPLY_HIGH_E_PHOTON_VETO || APPLY_ISOLATED_PHOTON_VETO) {
         tree->SetBranchAddress("particleType", &particleType);
         tree->SetBranchAddress("pfoE", &pfoE);
+        tree->SetBranchAddress("pfoPx", &pfoPx);
+        tree->SetBranchAddress("pfoPy", &pfoPy);
+        tree->SetBranchAddress("pfoPz", &pfoPz);
     }
 
     // Создание гистограмм
@@ -512,12 +584,20 @@ int main(int argc, char *argv[]) {
         }
 
         // Cut 4: Veto на высокоэнергетические фотоны
-        if (APPLY_PHOTON_VETO && hasHighEnergyPhoton(particleType, pfoE, photonEnergyCut)) {
+        if (APPLY_HIGH_E_PHOTON_VETO && hasHighEnergyPhoton(particleType, pfoE, photonEnergyCut)) {
             continue;
         }
-        stats.afterPhotonVeto++;
+        stats.afterHighEPhotonVeto++;
 
-        // Cut 5: Окно инвариантной массы диджета
+        // Cut 5: Veto на изолированные фотоны (критерии как для лептонов)
+        if (APPLY_ISOLATED_PHOTON_VETO &&
+            hasIsolatedPhoton(particleType, pfoE, pfoPx, pfoPy, pfoPz, PHOTON_ISO_MIN_ENERGY_GEV,
+                              PHOTON_ISO_COS_CONE_ANGLE, PHOTON_ISO_MAX_CONE_ENERGY_GEV)) {
+            continue;
+        }
+        stats.afterIsoPhotonVeto++;
+
+        // Cut 6: Окно инвариантной массы диджета
         if (APPLY_DIJET_MASS_WINDOW) {
             if (invMass < DIJET_MASS_WINDOW_MIN_GEV || invMass > DIJET_MASS_WINDOW_MAX_GEV) {
                 continue;
@@ -525,7 +605,7 @@ int main(int argc, char *argv[]) {
         }
         stats.afterDijetMassWindow++;
 
-        // Cut 6: Окно массы отдачи
+        // Cut 7: Окно массы отдачи
         if (APPLY_RECOIL_MASS_WINDOW) {
             if (recoilMass < RECOIL_MASS_WINDOW_MIN_GEV ||
                 recoilMass > RECOIL_MASS_WINDOW_MAX_GEV) {

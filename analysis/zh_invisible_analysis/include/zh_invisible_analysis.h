@@ -12,8 +12,14 @@
 #define APPLY_LEPTON_VETO true
 
 // Вето на высокоэнергетические фотоны
-#define APPLY_PHOTON_VETO true
+#define APPLY_HIGH_E_PHOTON_VETO true
 #define PHOTON_ENERGY_CUT_GEV 30.0 // Порог энергии фотона для вето
+
+// Вето на изолированные фотоны
+#define APPLY_ISOLATED_PHOTON_VETO true
+const double PHOTON_ISO_MIN_ENERGY_GEV = 5.0;
+const double PHOTON_ISO_MAX_CONE_ENERGY_GEV = 2.0;
+const double PHOTON_ISO_COS_CONE_ANGLE = 0.985;
 
 // Требование ровно 2 джета в инклюзивном режиме
 #define REQUIRE_EXACTLY_TWO_INCLUSIVE_JETS true
@@ -91,7 +97,8 @@ const bool PRINT_CUT_STATISTICS = true;
 struct CutStatistics {
     Long64_t totalEvents = 0;
     Long64_t afterLeptonVeto = 0;
-    Long64_t afterPhotonVeto = 0;
+    Long64_t afterHighEPhotonVeto = 0;
+    Long64_t afterIsoPhotonVeto = 0;
     Long64_t afterJetCount = 0;
     Long64_t afterConstituents = 0;
     Long64_t afterDijetMassWindow = 0;
@@ -111,8 +118,10 @@ struct CutStatistics {
                   << 100.0 * afterJetCount / totalEvents << "%)" << std::endl;
         std::cout << "После требования конституентов:   " << afterConstituents << " ("
                   << 100.0 * afterConstituents / totalEvents << "%)" << std::endl;
-        std::cout << "После photon veto:                " << afterPhotonVeto << " ("
-                  << 100.0 * afterPhotonVeto / totalEvents << "%)" << std::endl;
+        std::cout << "После high-E photon veto:         " << afterHighEPhotonVeto << " ("
+                  << 100.0 * afterHighEPhotonVeto / totalEvents << "%)" << std::endl;
+        std::cout << "После isolated photon veto:       " << afterIsoPhotonVeto << " ("
+                  << 100.0 * afterIsoPhotonVeto / totalEvents << "%)" << std::endl;
         if (APPLY_DIJET_MASS_WINDOW) {
             std::cout << "После окна массы диджета (65-110 ГэВ): " << afterDijetMassWindow << " ("
                       << 100.0 * afterDijetMassWindow / totalEvents << "%)" << std::endl;
