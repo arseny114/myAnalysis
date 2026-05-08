@@ -30,13 +30,17 @@ const double PHOTON_ISO_COS_CONE_ANGLE = 0.985;
 
 // Окно инвариантной массы диджета (ГэВ)
 #define APPLY_DIJET_MASS_WINDOW true
-#define DIJET_MASS_WINDOW_MIN_GEV 65.0
-#define DIJET_MASS_WINDOW_MAX_GEV 110.0
+#define DIJET_MASS_WINDOW_MIN_GEV 75.0
+#define DIJET_MASS_WINDOW_MAX_GEV 105.0
 
 // Окно массы отдачи (ГэВ)
 #define APPLY_RECOIL_MASS_WINDOW true
-#define RECOIL_MASS_WINDOW_MIN_GEV 110.0
-#define RECOIL_MASS_WINDOW_MAX_GEV 165.0
+#define RECOIL_MASS_WINDOW_MIN_GEV 105.0
+#define RECOIL_MASS_WINDOW_MAX_GEV 145.0
+
+// Кат на полярный угол системы двух джетов (Z-бозона)
+#define APPLY_COS_THETA_Z_CUT true
+const double COS_THETA_Z_CUT = 0.98;
 
 // =============================================================================
 // ПАРАМЕТРЫ ФИЗИКИ И ГИСТОГРАММ
@@ -102,6 +106,7 @@ struct CutStatistics {
     Long64_t afterJetCount = 0;
     Long64_t afterConstituents = 0;
     Long64_t afterDijetMassWindow = 0;
+    Long64_t afterCosThetaZCut = 0;
     Long64_t afterRecoilMassWindow = 0;
     Long64_t finalSelected = 0;
 
@@ -125,6 +130,10 @@ struct CutStatistics {
         if (APPLY_DIJET_MASS_WINDOW) {
             std::cout << "После окна массы диджета (65-110 ГэВ): " << afterDijetMassWindow << " ("
                       << 100.0 * afterDijetMassWindow / totalEvents << "%)" << std::endl;
+        }
+        if (APPLY_COS_THETA_Z_CUT) {
+            std::cout << "После |cos#theta_{Z}| < " << COS_THETA_Z_CUT << ":  " << afterCosThetaZCut
+                      << " (" << 100.0 * afterCosThetaZCut / totalEvents << "%)" << std::endl;
         }
         if (APPLY_RECOIL_MASS_WINDOW) {
             std::cout << "После окна массы отдачи (110-165 ГэВ): " << afterRecoilMassWindow << " ("

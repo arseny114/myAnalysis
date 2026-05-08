@@ -605,6 +605,15 @@ int main(int argc, char *argv[]) {
         }
         stats.afterDijetMassWindow++;
 
+        // Cut 7: Кат на |cos(theta_Z)| < 0.98 (угловое распределение Z-бозона)
+        if (APPLY_COS_THETA_Z_CUT) {
+            double cosThetaZ = std::cos(thetaZ);
+            if (std::abs(cosThetaZ) >= COS_THETA_Z_CUT) {
+                continue;
+            }
+        }
+        stats.afterCosThetaZCut++;
+
         // Cut 7: Окно массы отдачи
         if (APPLY_RECOIL_MASS_WINDOW) {
             if (recoilMass < RECOIL_MASS_WINDOW_MIN_GEV ||
