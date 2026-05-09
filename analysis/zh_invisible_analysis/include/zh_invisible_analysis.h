@@ -98,6 +98,15 @@ const int COS_THETA_JET_BINS = 100;
 const double COS_THETA_JET_MIN = -1.0;
 const double COS_THETA_JET_MAX = 1.0;
 
+// Параметры для гистограмм потерянной поперечной энергии
+const int MET_PFO_BINS = 100;
+const double MET_PFO_MIN = 0.0;
+const double MET_PFO_MAX = 150.0;
+
+const int MET_JET_BINS = 100;
+const double MET_JET_MIN = 0.0;
+const double MET_JET_MAX = 150.0;
+
 // =============================================================================
 // НАСТРОЙКИ ВЫВОДА И ЛОГИРОВАНИЯ
 // =============================================================================

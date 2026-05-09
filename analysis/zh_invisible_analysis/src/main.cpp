@@ -516,6 +516,8 @@ int main(int argc, char *argv[]) {
     const std::string OUTPUT_DELTA_R = makeOutputPath("deltaR_jet1_jet2");
     const std::string OUTPUT_PHOTON_E_VS_RECOIL = makeOutputPath("photonE_vs_recoil_2d");
     const std::string OUTPUT_COS_THETA_JET = makeOutputPath("cosTheta_jets");
+    const std::string OUTPUT_MET_PFO = makeOutputPath("MET_pfo");
+    const std::string OUTPUT_MET_JET = makeOutputPath("MET_jets");
 
     // Инициализация ROOT
     gStyle->SetOptStat(1111);
@@ -599,6 +601,11 @@ int main(int argc, char *argv[]) {
     TH1F *hCosThetaJet = new TH1F("hCosThetaJet", "cos#theta of Jets;cos#theta;Events",
                                   COS_THETA_JET_BINS, COS_THETA_JET_MIN, COS_THETA_JET_MAX);
 
+    TH1F *hMETpfo = new TH1F("hMETpfo", "MET from all PFOs;MET_{PFO} [GeV];Events", MET_PFO_BINS,
+                             MET_PFO_MIN, MET_PFO_MAX);
+    TH1F *hMETjet = new TH1F("hMETjet", "MET from Two Jets;MET_{jet} [GeV];Events", MET_JET_BINS,
+                             MET_JET_MIN, MET_JET_MAX);
+
     // Статистика прохождения катов
     CutStatistics stats;
 
@@ -661,6 +668,18 @@ int main(int argc, char *argv[]) {
             }
         }
 
+        // Расчет Missing Transverse Energy
+        double met_jet = dijet.Pt();
+        double met_pfo = 0.0;
+        if (pfoPx && pfoPy) {
+            double sumPx = 0.0, sumPy = 0.0;
+            for (size_t i = 0; i < pfoPx->size(); ++i) {
+                sumPx += pfoPx->at(i);
+                sumPy += pfoPy->at(i);
+            }
+            met_pfo = std::sqrt(sumPx * sumPx + sumPy * sumPy);
+        }
+
         // Cut 4: Veto на высокоэнергетические фотоны
         if (APPLY_HIGH_E_PHOTON_VETO && hasHighEnergyPhoton(particleType, pfoE, photonEnergyCut)) {
             continue;
@@ -718,6 +737,8 @@ int main(int argc, char *argv[]) {
         hDeltaR->Fill(deltaR);
         hCosThetaJet->Fill(cosTheta1);
         hCosThetaJet->Fill(cosTheta2);
+        hMETpfo->Fill(met_pfo);
+        hMETjet->Fill(met_jet);
 
         stats.finalSelected++;
     }
@@ -763,6 +784,9 @@ int main(int argc, char *argv[]) {
     drawHistogram1D(hCosThetaJet, "cCosThetaJet", "cos#theta", OUTPUT_COS_THETA_JET, -1, "", kCyan,
                     2);
 
+    drawHistogram1D(hMETpfo, "cMETpfo", "MET_{PFO} [GeV]", OUTPUT_MET_PFO, -1, "", kOrange + 1, 2);
+    drawHistogram1D(hMETjet, "cMETjet", "MET_{jet} [GeV]", OUTPUT_MET_JET, -1, "", kViolet, 2);
+
     // Очистка памяти
     delete hInvMass;
     delete hRecoilMass;
@@ -771,6 +795,8 @@ int main(int argc, char *argv[]) {
     delete hDeltaR;
     delete hPhotonE_vs_Recoil;
     delete hCosThetaJet;
+    delete hMETpfo;
+    delete hMETjet;
     inputFile->Close();
     delete inputFile;
 
