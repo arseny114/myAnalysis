@@ -29,18 +29,28 @@ const double PHOTON_ISO_COS_CONE_ANGLE = 0.985;
 #define MIN_CONSTITUENTS_PER_JET 6
 
 // Окно инвариантной массы диджета (ГэВ)
-#define APPLY_DIJET_MASS_WINDOW true
+#define APPLY_DIJET_MASS_WINDOW false
 #define DIJET_MASS_WINDOW_MIN_GEV 75.0
 #define DIJET_MASS_WINDOW_MAX_GEV 105.0
 
 // Окно массы отдачи (ГэВ)
-#define APPLY_RECOIL_MASS_WINDOW true
+#define APPLY_RECOIL_MASS_WINDOW false
 #define RECOIL_MASS_WINDOW_MIN_GEV 105.0
 #define RECOIL_MASS_WINDOW_MAX_GEV 145.0
 
 // Кат на полярный угол системы двух джетов (Z-бозона)
 #define APPLY_COS_THETA_Z_CUT true
 const double COS_THETA_Z_CUT = 0.98;
+
+// Настройки эллиптического ката на M_jj vs M_recoil
+#define APPLY_ELLIPSE_CUT true
+
+// Параметры эллипса: ((x-x0)cosθ + (y-y0)sinθ)²/a² + (-(x-x0)sinθ + (y-y0)cosθ)²/b² <= 1
+const double ELLIPSE_CX_GEV = 87.5;           // Центр по M_inv
+const double ELLIPSE_CY_GEV = 130.0;          // Центр по M_recoil
+const double ELLIPSE_A_GEV = 27.95;           // Большая полуось
+const double ELLIPSE_B_GEV = 5.59;            // Малая полуось
+const double ELLIPSE_THETA = std::atan(-2.0); // Угол поворота
 
 // =============================================================================
 // ПАРАМЕТРЫ ФИЗИКИ И ГИСТОГРАММ
@@ -108,6 +118,7 @@ struct CutStatistics {
     Long64_t afterDijetMassWindow = 0;
     Long64_t afterCosThetaZCut = 0;
     Long64_t afterRecoilMassWindow = 0;
+    Long64_t afterEllipseCut = 0;
     Long64_t finalSelected = 0;
 
     void print(const std::string &processName) const {
@@ -138,6 +149,10 @@ struct CutStatistics {
         if (APPLY_RECOIL_MASS_WINDOW) {
             std::cout << "После окна массы отдачи (110-165 ГэВ): " << afterRecoilMassWindow << " ("
                       << 100.0 * afterRecoilMassWindow / totalEvents << "%)" << std::endl;
+        }
+        if (APPLY_ELLIPSE_CUT) {
+            std::cout << "После эллиптического cut'а:      " << afterEllipseCut << " ("
+                      << 100.0 * afterEllipseCut / totalEvents << "%)" << std::endl;
         }
         std::cout << "───────────────────────────────────────────────────" << std::endl;
         std::cout << "ФИНАЛЬНО ОТОБРАНО:                  " << finalSelected << " ("

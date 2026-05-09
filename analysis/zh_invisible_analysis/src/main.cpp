@@ -24,6 +24,8 @@
 #include <TLine.h>
 #include <TLorentzVector.h>
 #include <TPad.h>
+#include <TPaveText.h>
+#include <TPolyLine.h>
 #include <TStyle.h>
 #include <TText.h>
 #include <TTree.h>
@@ -115,6 +117,24 @@ double calculateDeltaR(const TLorentzVector &v1, const TLorentzVector &v2) {
 
     double dEta = eta1 - eta2;
     return std::sqrt(dEta * dEta + dPhi * dPhi);
+}
+
+// Проверка, находится ли точка (x,y) внутри повёрнутого эллипса
+// Параметры: центр (cx,cy), полуоси (a,b), угол поворота theta (радианы)
+bool isInsideEllipse(double x, double y, double cx, double cy, double a, double b, double theta) {
+    // 1. Перенос начала координат в центр эллипса
+    double dx = x - cx;
+    double dy = y - cy;
+
+    // 2. Поворот системы координат на угол -theta (чтобы совместить с осями эллипса)
+    double cosT = std::cos(theta);
+    double sinT = std::sin(theta);
+    double xRot = dx * cosT + dy * sinT;
+    double yRot = -dx * sinT + dy * cosT;
+
+    // 3. Проверка канонического уравнения эллипса: (x'/a)² + (y'/b)² <= 1
+    double value = (xRot * xRot) / (a * a) + (yRot * yRot) / (b * b);
+    return (value <= 1.0);
 }
 
 // Проверка наличия изолированных лептонов в событии
@@ -257,11 +277,13 @@ void drawHistogram1D(TH1F *hist, const std::string &canvasTitle, const std::stri
     delete c;
 }
 
-// Отрисовка 2D гистограммы с контурами масс
+// Отрисовка 2D гистограммы с опциональным эллипсом
 void drawHistogram2D(TH2F *hist, const std::string &canvasTitle, const std::string &xTitle,
                      const std::string &yTitle, const std::string &outputFile, double markX = -1,
                      double markY = -1, const std::string &markLabelX = "",
-                     const std::string &markLabelY = "") {
+                     const std::string &markLabelY = "", double ellipseCx = -1,
+                     double ellipseCy = -1, double ellipseA = -1, double ellipseB = -1,
+                     double ellipseTheta = 0, bool drawEllipse = false) {
     TCanvas *c = new TCanvas(canvasTitle.c_str(), canvasTitle.c_str(), 900, 800);
     c->SetLeftMargin(0.12);
     c->SetRightMargin(0.15);
@@ -319,6 +341,54 @@ void drawHistogram2D(TH2F *hist, const std::string &canvasTitle, const std::stri
     entriesLabel->SetNDC();
     entriesLabel->SetTextSize(0.035);
     entriesLabel->Draw();
+
+    // Отрисовка эллипса
+    if (drawEllipse && ellipseA > 0 && ellipseB > 0) {
+        const int nPts = 120;
+        std::vector<double> ex(nPts + 1), ey(nPts + 1);
+        for (int i = 0; i <= nPts; ++i) {
+            double phi = 2.0 * M_PI * i / nPts;
+            // Параметризация в собственной СК эллипса
+            double xl = ellipseA * std::cos(phi);
+            double yl = ellipseB * std::sin(phi);
+            // Поворот и перенос в лабораторную СК
+            ex[i] = ellipseCx + xl * std::cos(ellipseTheta) - yl * std::sin(ellipseTheta);
+            ey[i] = ellipseCy + xl * std::sin(ellipseTheta) + yl * std::cos(ellipseTheta);
+        }
+        TPolyLine *ellipse = new TPolyLine(nPts + 1, ex.data(), ey.data());
+        ellipse->SetLineColor(kGreen);
+        ellipse->SetLineWidth(3);
+        ellipse->SetLineStyle(kDashed);
+        ellipse->Draw("L SAME");
+
+        // Подпись
+        TLatex *ellipseLabel = new TLatex(ellipseCx + 8, ellipseCy - 12, "Ellipse cut");
+        ellipseLabel->SetTextColor(kGreen);
+        ellipseLabel->SetTextSize(0.03);
+        ellipseLabel->Draw();
+
+        // Создаём рамку с параметрами
+        double textX = 0.48, textY = 0.7;
+        double boxWidth = 0.25, boxHeight = 0.18;
+
+        // Фон под текстом
+        auto *paramBox = new TPaveText(textX, textY, textX + boxWidth, textY + boxHeight, "NDC NB");
+        paramBox->SetFillColor(kWhite);
+        paramBox->SetFillStyle(1001);
+        paramBox->SetLineColor(kGray + 2);
+        paramBox->SetLineWidth(1);
+        paramBox->SetTextAlign(12);
+        paramBox->SetTextSize(0.028);
+
+        // Формируем строки с параметрами
+        double thetaDeg = ellipseTheta * 180.0 / M_PI;
+        paramBox->AddText("Ellipse cut:");
+        paramBox->AddText(Form("Center: (%.1f, %.1f) GeV", ellipseCx, ellipseCy));
+        paramBox->AddText(Form("Semi-axes: a=%.2f, b=%.2f GeV", ellipseA, ellipseB));
+        paramBox->AddText(Form("Rotation: %.1f#circ", thetaDeg));
+
+        paramBox->Draw();
+    }
 
     c->SaveAs(outputFile.c_str());
     std::cout << "Сохранено: " << outputFile << std::endl;
@@ -614,7 +684,7 @@ int main(int argc, char *argv[]) {
         }
         stats.afterCosThetaZCut++;
 
-        // Cut 7: Окно массы отдачи
+        // Cut 8: Окно массы отдачи
         if (APPLY_RECOIL_MASS_WINDOW) {
             if (recoilMass < RECOIL_MASS_WINDOW_MIN_GEV ||
                 recoilMass > RECOIL_MASS_WINDOW_MAX_GEV) {
@@ -622,6 +692,15 @@ int main(int argc, char *argv[]) {
             }
         }
         stats.afterRecoilMassWindow++;
+
+        // Cut 9: Эллиптический cut на M_jj vs M_recoil
+        if (APPLY_ELLIPSE_CUT) {
+            if (!isInsideEllipse(invMass, recoilMass, ELLIPSE_CX_GEV, ELLIPSE_CY_GEV, ELLIPSE_A_GEV,
+                                 ELLIPSE_B_GEV, ELLIPSE_THETA)) {
+                continue;
+            }
+        }
+        stats.afterEllipseCut++;
 
         // Заполнение гистограмм
         hInvMass->Fill(invMass);
@@ -655,7 +734,14 @@ int main(int argc, char *argv[]) {
                     "M_{H} = 125.3 GeV", kBlue, 2);
 
     drawHistogram2D(h2D_Correlation, "c2D_Correlation", "M_{jj} [GeV]", "M_{recoil} [GeV]",
-                    OUTPUT_2D_CORR, MZ_GEV, MH_GEV, "M_{Z}", "M_{H}");
+                    OUTPUT_2D_CORR, MZ_GEV, MH_GEV, "M_{Z}", "M_{H}",
+#if APPLY_ELLIPSE_CUT
+                    ELLIPSE_CX_GEV, ELLIPSE_CY_GEV, ELLIPSE_A_GEV, ELLIPSE_B_GEV, ELLIPSE_THETA,
+                    true
+#else
+                    -1, -1, -1, -1, 0, false
+#endif
+    );
 
     drawHistogram1D(hThetaZ, "cThetaZ", "#theta_{Z} [rad]", OUTPUT_THETA_Z, -1, "", kGreen + 2, 2);
 
