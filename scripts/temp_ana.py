@@ -14,7 +14,7 @@ cepcswdatatop = "/cvmfs/cepcsw.ihep.ac.cn/prototype/releases/data/latest"
 ########## Podio Input ###################
 from Configurables import PodioInput
 inp = PodioInput("InputReader")
-inp.collections = ["CyberPFOPID"]
+inp.collections = ["CyberPFO"]
 ##########################################
 
 from Configurables import myAnalysis

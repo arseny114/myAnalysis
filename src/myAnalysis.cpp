@@ -123,6 +123,7 @@ StatusCode myAnalysis::initialize() {
     myOutputTree->Branch("pfoPx", &myEventData.pfoPx);
     myOutputTree->Branch("pfoPy", &myEventData.pfoPy);
     myOutputTree->Branch("pfoPz", &myEventData.pfoPz);
+    myOutputTree->Branch("pfoCharge", &myEventData.pfoCharge);
 
     // Hit stats
     myOutputTree->Branch("pfoNHitsEcal", &myEventData.pfoNHitsEcal);
@@ -196,6 +197,7 @@ StatusCode myAnalysis::execute() {
         myEventData.pfoPx.push_back(pfo.getMomentum()[0]);
         myEventData.pfoPy.push_back(pfo.getMomentum()[1]);
         myEventData.pfoPz.push_back(pfo.getMomentum()[2]);
+        myEventData.pfoCharge.push_back(pfo.getCharge());
 
         // Записываем тип частицы
         myEventData.particleType.push_back(pfo.getType());

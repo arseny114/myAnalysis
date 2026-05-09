@@ -40,6 +40,7 @@ public:
         isLepton.clear();
         isChargedHadron.clear();
         particleType.clear();
+        pfoCharge.clear();
 
         // Inclusive jets
         nJetsInclusive = 0;
@@ -64,6 +65,7 @@ public:
 
     int eventNumber = 0;
     std::vector<double> pfoE, pfoPx, pfoPy, pfoPz;
+    std::vector<double> pfoCharge;
 
     std::vector<int> pfoIdx, pfoNHitsEcal, pfoNHitsHcal, pfoNClustersEcal, pfoNClustersHcal;
     std::vector<double> leptonConeEnergy;
@@ -149,7 +151,7 @@ private:
 
     // Коллекция PFO
     DataHandle<edm4hep::ReconstructedParticleCollection> pfoCollHandler{
-        "CyberPFOPID", Gaudi::DataHandle::Reader, this};
+        "CyberPFO", Gaudi::DataHandle::Reader, this};
     const edm4hep::ReconstructedParticleCollection *myPfoCollPtr = nullptr;
 
     // =========================================================================
