@@ -94,6 +94,10 @@ const int DELTA_R_BINS = 100;
 const double DELTA_R_MIN = 0.0;
 const double DELTA_R_MAX = 5.0;
 
+const int COS_THETA_JET_BINS = 100;
+const double COS_THETA_JET_MIN = -1.0;
+const double COS_THETA_JET_MAX = 1.0;
+
 // =============================================================================
 // НАСТРОЙКИ ВЫВОДА И ЛОГИРОВАНИЯ
 // =============================================================================

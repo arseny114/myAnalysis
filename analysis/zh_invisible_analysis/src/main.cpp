@@ -515,6 +515,7 @@ int main(int argc, char *argv[]) {
     const std::string OUTPUT_THETA_Z = makeOutputPath("theta_Z_polar_angle");
     const std::string OUTPUT_DELTA_R = makeOutputPath("deltaR_jet1_jet2");
     const std::string OUTPUT_PHOTON_E_VS_RECOIL = makeOutputPath("photonE_vs_recoil_2d");
+    const std::string OUTPUT_COS_THETA_JET = makeOutputPath("cosTheta_jets");
 
     // Инициализация ROOT
     gStyle->SetOptStat(1111);
@@ -595,6 +596,9 @@ int main(int argc, char *argv[]) {
                  PHOTON_E_BINS, PHOTON_E_MIN_GEV, PHOTON_E_MAX_GEV, RECOIL_MASS_2D_BINS,
                  RECOIL_MASS_2D_MIN_GEV, RECOIL_MASS_2D_MAX_GEV);
 
+    TH1F *hCosThetaJet = new TH1F("hCosThetaJet", "cos#theta of Jets;cos#theta;Events",
+                                  COS_THETA_JET_BINS, COS_THETA_JET_MIN, COS_THETA_JET_MAX);
+
     // Статистика прохождения катов
     CutStatistics stats;
 
@@ -641,6 +645,10 @@ int main(int argc, char *argv[]) {
         // Расчёт θ и ΔR
         double thetaZ = calculatePolarAngle(dijet);  // полярный угол системы двух джетов
         double deltaR = calculateDeltaR(jet1, jet2); // расстояние между джетами
+
+        // Расчёт косинусов углов для джетов
+        double cosTheta1 = (jet1.P() > 1e-9) ? jet1.Pz() / jet1.P() : 0.0;
+        double cosTheta2 = (jet2.P() > 1e-9) ? jet2.Pz() / jet2.P() : 0.0;
 
         // Заполнение 2D гистограммы E_photon vs M_recoil (до photon veto)
         if (particleType && pfoE && particleType->size() == pfoE->size()) {
@@ -708,6 +716,8 @@ int main(int argc, char *argv[]) {
         h2D_Correlation->Fill(invMass, recoilMass);
         hThetaZ->Fill(thetaZ);
         hDeltaR->Fill(deltaR);
+        hCosThetaJet->Fill(cosTheta1);
+        hCosThetaJet->Fill(cosTheta2);
 
         stats.finalSelected++;
     }
@@ -750,6 +760,9 @@ int main(int argc, char *argv[]) {
     drawHistogram2D(hPhotonE_vs_Recoil, "cPhotonE_vs_Recoil", "E_{#gamma} [GeV] (pre-veto)",
                     "M_{recoil} [GeV]", OUTPUT_PHOTON_E_VS_RECOIL, -1, -1, "", "");
 
+    drawHistogram1D(hCosThetaJet, "cCosThetaJet", "cos#theta", OUTPUT_COS_THETA_JET, -1, "", kCyan,
+                    2);
+
     // Очистка памяти
     delete hInvMass;
     delete hRecoilMass;
@@ -757,6 +770,7 @@ int main(int argc, char *argv[]) {
     delete hThetaZ;
     delete hDeltaR;
     delete hPhotonE_vs_Recoil;
+    delete hCosThetaJet;
     inputFile->Close();
     delete inputFile;
 
