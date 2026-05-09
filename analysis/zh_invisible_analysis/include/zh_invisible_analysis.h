@@ -141,16 +141,26 @@ struct CutStatistics {
         std::cout << "Статистика отбора для процесса: " << processName << std::endl;
         std::cout << "═══════════════════════════════════════════════════" << std::endl;
         std::cout << "Всего событий:                    " << totalEvents << std::endl;
-        std::cout << "После lepton veto:                " << afterLeptonVeto << " ("
-                  << 100.0 * afterLeptonVeto / totalEvents << "%)" << std::endl;
-        std::cout << "После требования 2 джетов:        " << afterJetCount << " ("
-                  << 100.0 * afterJetCount / totalEvents << "%)" << std::endl;
-        std::cout << "После требования конституентов:   " << afterConstituents << " ("
-                  << 100.0 * afterConstituents / totalEvents << "%)" << std::endl;
-        std::cout << "После high-E photon veto:         " << afterHighEPhotonVeto << " ("
-                  << 100.0 * afterHighEPhotonVeto / totalEvents << "%)" << std::endl;
-        std::cout << "После isolated photon veto:       " << afterIsoPhotonVeto << " ("
-                  << 100.0 * afterIsoPhotonVeto / totalEvents << "%)" << std::endl;
+        if (APPLY_LEPTON_VETO) {
+            std::cout << "После lepton veto:                " << afterLeptonVeto << " ("
+                      << 100.0 * afterLeptonVeto / totalEvents << "%)" << std::endl;
+        }
+        if (REQUIRE_EXACTLY_TWO_INCLUSIVE_JETS) {
+            std::cout << "После требования 2 джетов:        " << afterJetCount << " ("
+                      << 100.0 * afterJetCount / totalEvents << "%)" << std::endl;
+        }
+        if (REQUIRE_MIN_CONSTITUENTS_PER_JET) {
+            std::cout << "После требования конституентов:   " << afterConstituents << " ("
+                      << 100.0 * afterConstituents / totalEvents << "%)" << std::endl;
+        }
+        if (APPLY_HIGH_E_PHOTON_VETO) {
+            std::cout << "После high-E photon veto:         " << afterHighEPhotonVeto << " ("
+                      << 100.0 * afterHighEPhotonVeto / totalEvents << "%)" << std::endl;
+        }
+        if (APPLY_ISOLATED_PHOTON_VETO) {
+            std::cout << "После isolated photon veto:       " << afterIsoPhotonVeto << " ("
+                      << 100.0 * afterIsoPhotonVeto / totalEvents << "%)" << std::endl;
+        }
         if (APPLY_DIJET_MASS_WINDOW) {
             std::cout << "После окна массы диджета (65-110 ГэВ): " << afterDijetMassWindow << " ("
                       << 100.0 * afterDijetMassWindow / totalEvents << "%)" << std::endl;
