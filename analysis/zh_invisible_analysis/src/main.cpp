@@ -751,13 +751,21 @@ int main(int argc, char *argv[]) {
             met_pfo = std::sqrt(sumPx * sumPx + sumPy * sumPy);
         }
 
-        // Cut 4: Veto на высокоэнергетические фотоны
+        // Cut 4: MET (Missing Transverse Energy)
+        if (APPLY_MET_CUT) {
+            if (met_jet < MET_CUT_MIN_GEV) {
+                continue;
+            }
+        }
+        stats.afterMetCut++;
+
+        // Cut 5: Veto на высокоэнергетические фотоны
         if (APPLY_HIGH_E_PHOTON_VETO && hasHighEnergyPhoton(particleType, pfoE, photonEnergyCut)) {
             continue;
         }
         stats.afterHighEPhotonVeto++;
 
-        // Cut 5: Veto на изолированные фотоны (критерии как для лептонов)
+        // Cut 6: Veto на изолированные фотоны (критерии как для лептонов)
         if (APPLY_ISOLATED_PHOTON_VETO &&
             hasIsolatedPhoton(particleType, pfoE, pfoPx, pfoPy, pfoPz, PHOTON_ISO_MIN_ENERGY_GEV,
                               PHOTON_ISO_COS_CONE_ANGLE, PHOTON_ISO_MAX_CONE_ENERGY_GEV)) {
@@ -765,7 +773,7 @@ int main(int argc, char *argv[]) {
         }
         stats.afterIsoPhotonVeto++;
 
-        // Cut 6: Окно инвариантной массы диджета
+        // Cut 7: Окно инвариантной массы диджета
         if (APPLY_DIJET_MASS_WINDOW) {
             if (invMass < DIJET_MASS_WINDOW_MIN_GEV || invMass > DIJET_MASS_WINDOW_MAX_GEV) {
                 continue;
@@ -773,7 +781,7 @@ int main(int argc, char *argv[]) {
         }
         stats.afterDijetMassWindow++;
 
-        // Cut 7: Кат на |cos(theta_Z)| < 0.98 (угловое распределение Z-бозона)
+        // Cut 8: |cos(theta_Z)| < 0.98 (угловое распределение Z-бозона)
         if (APPLY_COS_THETA_Z_CUT) {
             double cosThetaZ = std::cos(thetaZ);
             if (std::abs(cosThetaZ) >= COS_THETA_Z_CUT) {
@@ -782,7 +790,7 @@ int main(int argc, char *argv[]) {
         }
         stats.afterCosThetaZCut++;
 
-        // Cut 8: Окно массы отдачи
+        // Cut 9: Окно массы отдачи
         if (APPLY_RECOIL_MASS_WINDOW) {
             if (recoilMass < RECOIL_MASS_WINDOW_MIN_GEV ||
                 recoilMass > RECOIL_MASS_WINDOW_MAX_GEV) {
@@ -791,7 +799,7 @@ int main(int argc, char *argv[]) {
         }
         stats.afterRecoilMassWindow++;
 
-        // Cut 9: Эллиптический cut на M_jj vs M_recoil
+        // Cut 10: Эллиптический cut на M_jj vs M_recoil
         if (APPLY_ELLIPSE_CUT) {
             if (!isInsideEllipse(invMass, recoilMass, ELLIPSE_CX_GEV, ELLIPSE_CY_GEV, ELLIPSE_A_GEV,
                                  ELLIPSE_B_GEV, ELLIPSE_THETA)) {

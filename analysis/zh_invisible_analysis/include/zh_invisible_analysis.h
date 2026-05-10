@@ -33,6 +33,10 @@ const double PHOTON_ISO_COS_CONE_ANGLE = 0.985;
 #define REQUIRE_MIN_CONSTITUENTS_PER_JET true
 #define MIN_CONSTITUENTS_PER_JET 6
 
+// Кат на MET (Missing Transverse Energy)
+#define APPLY_MET_CUT true
+const double MET_CUT_MIN_GEV = 20.0;
+
 // Окно инвариантной массы диджета (ГэВ)
 #define APPLY_DIJET_MASS_WINDOW false
 #define DIJET_MASS_WINDOW_MIN_GEV 75.0
@@ -133,6 +137,7 @@ struct CutStatistics {
     Long64_t afterIsoPhotonVeto = 0;
     Long64_t afterJetCount = 0;
     Long64_t afterConstituents = 0;
+    Long64_t afterMetCut = 0;
     Long64_t afterDijetMassWindow = 0;
     Long64_t afterCosThetaZCut = 0;
     Long64_t afterRecoilMassWindow = 0;
@@ -158,6 +163,10 @@ struct CutStatistics {
             std::cout << "После требования конституентов:   " << afterConstituents << " ("
                       << 100.0 * afterConstituents / totalEvents << "%)" << std::endl;
         }
+        if (APPLY_MET_CUT) {
+            std::cout << "После MET:                        " << afterMetCut << " ("
+                      << 100.0 * afterMetCut / totalEvents << "%)" << std::endl;
+        }
         if (APPLY_HIGH_E_PHOTON_VETO) {
             std::cout << "После high-E photon veto:         " << afterHighEPhotonVeto << " ("
                       << 100.0 * afterHighEPhotonVeto / totalEvents << "%)" << std::endl;
@@ -167,7 +176,7 @@ struct CutStatistics {
                       << 100.0 * afterIsoPhotonVeto / totalEvents << "%)" << std::endl;
         }
         if (APPLY_DIJET_MASS_WINDOW) {
-            std::cout << "После окна массы диджета (65-110 ГэВ): " << afterDijetMassWindow << " ("
+            std::cout << "После окна массы диджета: " << afterDijetMassWindow << " ("
                       << 100.0 * afterDijetMassWindow / totalEvents << "%)" << std::endl;
         }
         if (APPLY_COS_THETA_Z_CUT) {
@@ -175,7 +184,7 @@ struct CutStatistics {
                       << " (" << 100.0 * afterCosThetaZCut / totalEvents << "%)" << std::endl;
         }
         if (APPLY_RECOIL_MASS_WINDOW) {
-            std::cout << "После окна массы отдачи (110-165 ГэВ): " << afterRecoilMassWindow << " ("
+            std::cout << "После окна массы отдачи: " << afterRecoilMassWindow << " ("
                       << 100.0 * afterRecoilMassWindow / totalEvents << "%)" << std::endl;
         }
         if (APPLY_ELLIPSE_CUT) {
