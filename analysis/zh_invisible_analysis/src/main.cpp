@@ -582,7 +582,7 @@ int main(int argc, char *argv[]) {
     const std::string OUTPUT_INV_MASS = makeOutputPath("inv_mass_2jets");
     const std::string OUTPUT_RECOIL_MASS = makeOutputPath("recoil_mass_2jets");
     const std::string OUTPUT_2D_CORR = makeOutputPath("inv_vs_recoil_2d");
-    const std::string OUTPUT_THETA_Z = makeOutputPath("theta_Z_polar_angle");
+    const std::string OUTPUT_COS_THETA_Z = makeOutputPath("cos_theta_Z_polar_angle");
     const std::string OUTPUT_DELTA_R = makeOutputPath("deltaR_jet1_jet2");
     const std::string OUTPUT_PHOTON_E_VS_RECOIL = makeOutputPath("photonE_vs_recoil_2d");
     const std::string OUTPUT_COS_THETA_JET = makeOutputPath("cosTheta_jets");
@@ -653,9 +653,9 @@ int main(int argc, char *argv[]) {
         "h2D_Correlation", "Invariant Mass vs Recoil Mass;M_{jj} [GeV];M_{recoil} [GeV]", MASS_BINS,
         MASS_MIN_GEV, MASS_MAX_GEV, RECOIL_BINS, RECOIL_MIN_GEV, RECOIL_MAX_GEV);
 
-    TH1F *hThetaZ =
-        new TH1F("hThetaZ", "Polar Angle of Z Boson (Two-Jet System);#theta_{Z} [rad];Events",
-                 THETA_BINS, THETA_MIN_RAD, THETA_MAX_RAD);
+    TH1F *hCosThetaZ =
+        new TH1F("hCosThetaZ ", "cos#theta of Z Boson (Two-Jet System);cos#theta_{Z};Events ",
+                 COS_THETA_Z_BINS, COS_THETA_Z_MIN, COS_THETA_Z_MAX);
 
     TH1F *hDeltaR = new TH1F("hDeltaR",
                              "Distance #Delta R Between Two Jets;#Delta R = #sqrt{#Delta#eta^{2} + "
@@ -841,7 +841,7 @@ int main(int argc, char *argv[]) {
         hInvMass->Fill(invMass);
         hRecoilMass->Fill(recoilMass);
         h2D_Correlation->Fill(invMass, recoilMass);
-        hThetaZ->Fill(thetaZ);
+        hCosThetaZ->Fill(std::cos(thetaZ));
         hDeltaR->Fill(deltaR);
         hCosThetaJet->Fill(cosTheta1);
         hCosThetaJet->Fill(cosTheta2);
@@ -883,7 +883,8 @@ int main(int argc, char *argv[]) {
 #endif
     );
 
-    drawHistogram1D(hThetaZ, "cThetaZ", "#theta_{Z} [rad]", OUTPUT_THETA_Z, -1, "", kGreen + 2, 2);
+    drawHistogram1D(hCosThetaZ, "cCosThetaZ ", "cos#theta_{Z} ", OUTPUT_COS_THETA_Z, -1, "", kRed,
+                    2);
 
     drawHistogram1D(hDeltaR, "cDeltaR", "#Delta R", OUTPUT_DELTA_R, -1, "", kMagenta, 2);
 
@@ -903,7 +904,7 @@ int main(int argc, char *argv[]) {
     delete hInvMass;
     delete hRecoilMass;
     delete h2D_Correlation;
-    delete hThetaZ;
+    delete hCosThetaZ;
     delete hDeltaR;
     delete hPhotonE_vs_Recoil;
     delete hCosThetaJet;

@@ -95,9 +95,9 @@ const double RECOIL_MASS_2D_MIN_GEV = 0.0;
 const double RECOIL_MASS_2D_MAX_GEV = 250.0;
 
 // Параметры для гистограмм угловых распределений
-const int THETA_BINS = 100;
-const double THETA_MIN_RAD = 0.0;
-const double THETA_MAX_RAD = 3.14159; // π
+const int COS_THETA_Z_BINS = 100;
+const double COS_THETA_Z_MIN = -1.0;
+const double COS_THETA_Z_MAX = 1.0;
 
 const int DELTA_R_BINS = 100;
 const double DELTA_R_MIN = 0.0;
