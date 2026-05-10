@@ -126,6 +126,15 @@ const int MET_JET_BINS = 100;
 const double MET_JET_MIN = 0.0;
 const double MET_JET_MAX = 150.0;
 
+// Параметры для гистограмм недостающего 3-импульса (Pmiss)
+const int PMISS_BINS = 100;
+const double PMISS_MIN_GEV = 0.0;
+const double PMISS_MAX_GEV = 150.0;
+
+const int COS_THETA_PMISS_BINS = 100;
+const double COS_THETA_PMISS_MIN = -1.0;
+const double COS_THETA_PMISS_MAX = 1.0;
+
 // =============================================================================
 // НАСТРОЙКИ ВЫВОДА И ЛОГИРОВАНИЯ
 // =============================================================================

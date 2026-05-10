@@ -588,6 +588,8 @@ int main(int argc, char *argv[]) {
     const std::string OUTPUT_COS_THETA_JET = makeOutputPath("cosTheta_jets");
     const std::string OUTPUT_MET_PFO = makeOutputPath("MET_pfo");
     const std::string OUTPUT_MET_JET = makeOutputPath("MET_jets");
+    const std::string OUTPUT_PMISS_MAG = makeOutputPath("Pmiss_magnitude");
+    const std::string OUTPUT_COS_THETA_PMISS = makeOutputPath("cosTheta_Pmiss");
 
     // Инициализация ROOT
     gStyle->SetOptStat(1111);
@@ -686,6 +688,14 @@ int main(int argc, char *argv[]) {
     TH1F *hLeptonEnergyIso =
         new TH1F("hLeptonEnergyIso ", "Energy of Isolated Leptons;E_{l}^{iso} [GeV];Events ",
                  LEPTON_E_BINS, LEPTON_E_MIN_GEV, LEPTON_E_MAX_GEV);
+
+    TH1F *hPmissMag =
+        new TH1F("hPmissMag", "Magnitude of Missing 3-Momentum;|P_{miss}| [GeV];Events", PMISS_BINS,
+                 PMISS_MIN_GEV, PMISS_MAX_GEV);
+
+    TH1F *hCosThetaPmiss =
+        new TH1F("hCosThetaPmiss", "cos#theta of Missing 3-Momentum;cos#theta_{miss};Events",
+                 COS_THETA_PMISS_BINS, COS_THETA_PMISS_MIN, COS_THETA_PMISS_MAX);
 
     // Статистики
     CutStatistics stats;
@@ -795,13 +805,32 @@ int main(int argc, char *argv[]) {
         // Расчет Missing Transverse Energy
         double met_jet = dijet.Pt();
         double met_pfo = 0.0;
-        if (pfoPx && pfoPy) {
-            double sumPx = 0.0, sumPy = 0.0;
+
+        // Расчет Missing 3-Momentum (Pmiss): векторная сумма всех PFO с обратным знаком
+        // Расчет MET для PFO
+        double pmiss_x = 0.0, pmiss_y = 0.0, pmiss_z = 0.0;
+        if (pfoPx && pfoPy && pfoPz) {
+            double sumPx = 0.0, sumPy = 0.0, sumPz = 0.0;
             for (size_t i = 0; i < pfoPx->size(); ++i) {
                 sumPx += pfoPx->at(i);
                 sumPy += pfoPy->at(i);
+                sumPz += pfoPz->at(i);
             }
             met_pfo = std::sqrt(sumPx * sumPx + sumPy * sumPy);
+
+            // Pmiss = -(Σ p_i)
+            pmiss_x = -sumPx;
+            pmiss_y = -sumPy;
+            pmiss_z = -sumPz;
+        }
+
+        // Заполнение гистограмм Pmiss
+        double pmiss_mag = std::sqrt(pmiss_x * pmiss_x + pmiss_y * pmiss_y + pmiss_z * pmiss_z);
+        double cosThetaPmiss = 0.0;
+        if (pmiss_mag > 1e-9) {
+            cosThetaPmiss = pmiss_z / pmiss_mag;
+            // Защита от численных ошибок
+            cosThetaPmiss = std::max(-1.0, std::min(1.0, cosThetaPmiss));
         }
 
         // Cut 4: MET (Missing Transverse Energy)
@@ -871,6 +900,8 @@ int main(int argc, char *argv[]) {
         hCosThetaJet->Fill(cosTheta2);
         hMETpfo->Fill(met_pfo);
         hMETjet->Fill(met_jet);
+        hPmissMag->Fill(pmiss_mag);
+        hCosThetaPmiss->Fill(cosThetaPmiss);
 
         stats.finalSelected++;
     }
@@ -928,6 +959,11 @@ int main(int argc, char *argv[]) {
     drawHistogram1D(hLeptonEnergyIso, "cLeptonEnergyIso", "E_{l}^{iso} [GeV]",
                     makeOutputPath("lepton_energy_iso"), -1, " ", kRed, 2);
 
+    drawHistogram1D(hPmissMag, "cPmissMag", "|P_{miss}| [GeV]", OUTPUT_PMISS_MAG, -1, "", kOrange,
+                    2);
+    drawHistogram1D(hCosThetaPmiss, "cCosThetaPmiss", "cos#theta_{miss}", OUTPUT_COS_THETA_PMISS,
+                    -1, "", kMagenta, 2);
+
     // Очистка памяти
     delete hInvMass;
     delete hRecoilMass;
@@ -941,6 +977,8 @@ int main(int argc, char *argv[]) {
     delete hCosThetaIsoElec;
     delete hLeptonEnergyAll;
     delete hLeptonEnergyIso;
+    delete hPmissMag;
+    delete hCosThetaPmiss;
     inputFile->Close();
     delete inputFile;
 
