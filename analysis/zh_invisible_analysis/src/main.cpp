@@ -269,6 +269,68 @@ bool hasIsolatedLeptonROOT(const std::vector<int> *types, const std::vector<doub
     return false;
 }
 
+// Вычисление энергии в конусе, ИСКЛЮЧАЯ фотоны (для подавления FSR-эффекта)
+double calculateConeEnergyExclPhotons(size_t centerIdx, const std::vector<int> *types,
+                                      const std::vector<double> *pfoE,
+                                      const std::vector<double> *px, const std::vector<double> *py,
+                                      const std::vector<double> *pz, double cosConeCut) {
+    if (!types || !pfoE || !px || !py || !pz || centerIdx >= pfoE->size())
+        return 0.0;
+    double coneE = 0.0;
+    double px1 = px->at(centerIdx), py1 = py->at(centerIdx), pz1 = pz->at(centerIdx);
+    double p1 = std::sqrt(px1 * px1 + py1 * py1 + pz1 * pz1);
+    if (p1 < 1e-9)
+        return 0.0;
+    for (size_t i = 0; i < pfoE->size(); ++i) {
+        if (i == centerIdx)
+            continue;
+        if (std::abs(types->at(i)) == PDG_PHOTON)
+            continue; // Игнорируем FSR-фотоны
+        double px2 = px->at(i), py2 = py->at(i), pz2 = pz->at(i);
+        double p2 = std::sqrt(px2 * px2 + py2 * py2 + pz2 * pz2);
+        if (p2 < 1e-9)
+            continue;
+        double cosTheta = (px1 * px2 + py1 * py2 + pz1 * pz2) / (p1 * p2);
+        cosTheta = std::max(-1.0, std::min(1.0, cosTheta));
+        if (cosTheta >= cosConeCut)
+            coneE += pfoE->at(i);
+    }
+    return coneE;
+}
+
+// Проверка изоляции одного лептона с FSR-коррекцией
+bool isLeptonIsolatedROOT_FSR(size_t idx, const std::vector<int> *types,
+                              const std::vector<double> *energies, const std::vector<double> *px,
+                              const std::vector<double> *py, const std::vector<double> *pz) {
+    if (!types || !energies || !px || !py || !pz || idx >= types->size())
+        return false;
+    int pdg = std::abs(types->at(idx));
+    if (pdg != 11 && pdg != 13)
+        return false;
+    double trackE = energies->at(idx);
+    if (trackE < LEPTON_ISO_MIN_TRACK_E_GEV || trackE > LEPTON_ISO_MAX_TRACK_E_GEV)
+        return false;
+
+    double coneENoPhotons =
+        calculateConeEnergyExclPhotons(idx, types, energies, px, py, pz, LEPTON_ISO_COS_CONE_ANGLE);
+    if (coneENoPhotons < LEPTON_ISO_MIN_CONE_E_GEV || coneENoPhotons > LEPTON_ISO_MAX_CONE_E_GEV)
+        return false;
+    return true;
+}
+
+// Проверка наличия изолированного лептона в событии (FSR-версия)
+bool hasIsolatedLeptonROOT_FSR(const std::vector<int> *types, const std::vector<double> *energies,
+                               const std::vector<double> *px, const std::vector<double> *py,
+                               const std::vector<double> *pz) {
+    if (!types || !energies)
+        return false;
+    for (size_t i = 0; i < types->size(); ++i) {
+        if (isLeptonIsolatedROOT_FSR(i, types, energies, px, py, pz))
+            return true;
+    }
+    return false;
+}
+
 // Детальная таблица изоляции лептонов в событии
 void printLeptonIsolationDebugTable(size_t eventNum, const std::vector<int> *types,
                                     const std::vector<double> *energies,
@@ -280,32 +342,42 @@ void printLeptonIsolationDebugTable(size_t eventNum, const std::vector<int> *typ
     if (gaudiFlags->size() != types->size())
         return;
 
-    std::cout << "\n[DEBUG TABLE] Event " << eventNum << " | Lepton Isolation Check:\n";
-    std::cout << std::left << std::setw(5) << "Idx" << std::setw(6) << "PDG" << std::setw(10)
-              << "E(GeV)" << std::setw(8) << "Gaudi" << std::setw(12) << "ConeE(GeV)"
-              << std::setw(8) << "ROOT"
+    std::cout << "\n[DEBUG TABLE] Event " << eventNum << " | Lepton Isolation Check (FSR-aware):\n";
+    std::cout << std::left << std::setw(5) << "Idx" << std::setw(5) << "PDG" << std::setw(8)
+              << "E(GeV)" << std::setw(7) << "Gaudi" << std::setw(9) << "ConeAll" << std::setw(11)
+              << "ConeNoPho" << std::setw(10) << "ROOT_old" << std::setw(10) << "ROOT_FSR"
               << "\n";
-    std::cout << std::string(49, '-') << "\n";
+    std::cout << std::string(68, '-') << "\n";
 
     for (size_t i = 0; i < types->size(); ++i) {
         int pdg = std::abs(types->at(i));
         if (pdg != 11 && pdg != 13)
-            continue; // Только электроны и мюоны
+            continue;
 
         double E = energies->at(i);
         int gFlag = gaudiFlags->at(i);
-        double coneE = calculateConeEnergy(i, energies, px, py, pz, LEPTON_ISO_COS_CONE_ANGLE);
 
-        // Прямое повторение логики isLeptonIsolatedROOT
-        bool rootIso = (E >= LEPTON_ISO_MIN_TRACK_E_GEV && E <= LEPTON_ISO_MAX_TRACK_E_GEV &&
-                        coneE >= LEPTON_ISO_MIN_CONE_E_GEV && coneE <= LEPTON_ISO_MAX_CONE_E_GEV);
+        // Старая логика
+        double coneAll = calculateConeEnergy(i, energies, px, py, pz, LEPTON_ISO_COS_CONE_ANGLE);
+        bool rootOld =
+            (E >= LEPTON_ISO_MIN_TRACK_E_GEV && E <= LEPTON_ISO_MAX_TRACK_E_GEV &&
+             coneAll >= LEPTON_ISO_MIN_CONE_E_GEV && coneAll <= LEPTON_ISO_MAX_CONE_E_GEV);
 
-        std::cout << std::left << std::setw(5) << i << std::setw(6) << pdg << std::setw(10)
-                  << std::fixed << std::setprecision(2) << E << std::setw(8) << gFlag
-                  << std::setw(12) << std::fixed << std::setprecision(3) << coneE << std::setw(8)
-                  << (rootIso ? "ISO" : "clean") << "\n";
+        // Новая логика (без фотонов)
+        double coneNoPho = calculateConeEnergyExclPhotons(i, types, energies, px, py, pz,
+                                                          LEPTON_ISO_COS_CONE_ANGLE);
+        bool rootFSR =
+            (E >= LEPTON_ISO_MIN_TRACK_E_GEV && E <= LEPTON_ISO_MAX_TRACK_E_GEV &&
+             coneNoPho >= LEPTON_ISO_MIN_CONE_E_GEV && coneNoPho <= LEPTON_ISO_MAX_CONE_E_GEV);
+
+        std::cout << std::left << std::setw(5) << i << std::setw(5) << pdg << std::setw(8)
+                  << std::fixed << std::setprecision(2) << E << std::setw(7) << gFlag
+                  << std::setw(9) << std::fixed << std::setprecision(3) << coneAll << std::setw(11)
+                  << std::fixed << std::setprecision(3) << coneNoPho << std::setw(10)
+                  << (rootOld ? "ISO" : "clean") << std::setw(10) << (rootFSR ? "ISO" : "clean")
+                  << "\n";
     }
-    std::cout << std::string(49, '-') << "\n\n";
+    std::cout << std::string(68, '-') << "\n\n";
 }
 
 // Отрисовка 1D гистограммы с линиями маркерами
@@ -696,29 +768,27 @@ int main(int argc, char *argv[]) {
         logProgress(i + 1, nEntries, "Processing");
         stats.totalEvents++;
 
-        // Cut 1: Veto на изолированные лептоны (сравнение Gaudi флага и ROOT-расчета)
+        // Cut 1: Veto на изолированные лептоны (сравнение Gaudi, ROOT_old и ROOT_FSR)
         if (APPLY_LEPTON_VETO) {
             bool gaudiHasIsoLepton = hasIsolatedLepton(isIsolatedLeptonFlag);
-            bool rootHasIsoLepton = false;
+            bool rootHasIsoLeptonOld = false;
+            bool rootHasIsoLeptonFSR = false;
 
             if (DEBUG_LEPTON_ISOLATION) {
-                rootHasIsoLepton = hasIsolatedLeptonROOT(particleType, pfoE, pfoPx, pfoPy, pfoPz);
+                rootHasIsoLeptonOld =
+                    hasIsolatedLeptonROOT(particleType, pfoE, pfoPx, pfoPy, pfoPz);
+                rootHasIsoLeptonFSR =
+                    hasIsolatedLeptonROOT_FSR(particleType, pfoE, pfoPx, pfoPy, pfoPz);
 
-                // Печатаем таблицу при срабатывании вето или при рассинхроне флагов (лимит 20
-                // событий)
-                // static int debugPrintCount = 0;
-                // if (rootHasIsoLepton || gaudiHasIsoLepton != rootHasIsoLepton) { // &&
-                // debugPrintCount < 20) {
-                // debugPrintCount++;
+                // Печатаем таблицу
                 printLeptonIsolationDebugTable(i + 1, particleType, pfoE, pfoPx, pfoPy, pfoPz,
                                                isIsolatedLeptonFlag);
-                // }
 
-                // В отладке вето срабатывает по независимому ROOT-расчёту
-                if (rootHasIsoLepton)
+                // В отладке применяем FSR-скорректированное вето
+                if (rootHasIsoLeptonFSR)
                     continue;
             } else {
-                // Стандартное поведение: veto по флагу из процессора
+                // Стандартное поведение
                 if (gaudiHasIsoLepton)
                     continue;
             }
