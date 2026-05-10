@@ -107,6 +107,11 @@ const int COS_THETA_JET_BINS = 100;
 const double COS_THETA_JET_MIN = -1.0;
 const double COS_THETA_JET_MAX = 1.0;
 
+// Параметры для гистограммы cos(theta) изолированных электронов
+const int COS_THETA_ELEC_BINS = 100;
+const double COS_THETA_ELEC_MIN = -1.0;
+const double COS_THETA_ELEC_MAX = 1.0;
+
 // Параметры для гистограмм потерянной поперечной энергии
 const int MET_PFO_BINS = 100;
 const double MET_PFO_MIN = 0.0;
@@ -195,6 +200,27 @@ struct CutStatistics {
         std::cout << "ФИНАЛЬНО ОТОБРАНО:                  " << finalSelected << " ("
                   << 100.0 * finalSelected / totalEvents << "%)" << std::endl;
         std::cout << "═══════════════════════════════════════════════════\n" << std::endl;
+    }
+};
+
+// =============================================================================
+// СТРУКТУРА ДЛЯ СТАТИСТИКИ ИЗОЛИРОВАННЫХ ЭЛЕКТРОНОВ
+// =============================================================================
+struct IsoElectronStats {
+    Long64_t total = 0;
+    Long64_t barrel = 0; // |cos(theta)| < 0.7
+    Long64_t endcap = 0; // |cos(theta)| >= 0.7
+
+    void print() const {
+        if (total == 0)
+            return;
+        std::cout << "\n── Статистика изолированных электронов ──" << std::endl;
+        std::cout << "  Всего изолированных e:         " << total << std::endl;
+        std::cout << "  В барреле (|cos#theta| < 0.7): " << barrel << " (" << 100.0 * barrel / total
+                  << "%)" << std::endl;
+        std::cout << "  В эндкапе (|cos#theta|>= 0.7): " << endcap << " (" << 100.0 * endcap / total
+                  << "%)" << std::endl;
+        std::cout << "───────────────────────────────────────────────────" << std::endl;
     }
 };
 

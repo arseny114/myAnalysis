@@ -676,8 +676,13 @@ int main(int argc, char *argv[]) {
     TH1F *hMETjet = new TH1F("hMETjet", "MET from Two Jets;MET_{jet} [GeV];Events", MET_JET_BINS,
                              MET_JET_MIN, MET_JET_MAX);
 
-    // Статистика прохождения катов
+    TH1F *hCosThetaIsoElec =
+        new TH1F("hCosThetaIsoElec", "cos#theta of Isolated Electrons;cos#theta;Events",
+                 COS_THETA_ELEC_BINS, COS_THETA_ELEC_MIN, COS_THETA_ELEC_MAX);
+
+    // Статистики
     CutStatistics stats;
+    IsoElectronStats elecStats;
 
     // Основной цикл по событиям
     Long64_t nEntries = tree->GetEntries();
@@ -687,6 +692,30 @@ int main(int argc, char *argv[]) {
         tree->GetEntry(i);
         logProgress(i + 1, nEntries, "Processing");
         stats.totalEvents++;
+
+        // Сбор статистики изолированных электронов
+        if (particleType && pfoE && pfoPx && pfoPy && pfoPz) {
+            for (size_t k = 0; k < particleType->size(); ++k) {
+                // Отбираем только электроны/позитроны
+                if (std::abs(particleType->at(k)) == PDG_ELECTRON) {
+                    // Проверяем изоляцию существующей функцией
+                    if (isLeptonIsolatedROOT_FSR(k, particleType, pfoE, pfoPx, pfoPy, pfoPz)) {
+                        double px = pfoPx->at(k);
+                        double py = pfoPy->at(k);
+                        double pz = pfoPz->at(k);
+                        double p = std::sqrt(px * px + py * py + pz * pz);
+                        double cosTheta = (p > 1e-9) ? pz / p : 0.0;
+
+                        hCosThetaIsoElec->Fill(cosTheta);
+                        elecStats.total++;
+                        if (std::abs(cosTheta) < 0.7)
+                            elecStats.barrel++;
+                        else
+                            elecStats.endcap++;
+                    }
+                }
+            }
+        }
 
         // Cut 1: Veto на изолированные лептоны с учетом FSR
         if (APPLY_LEPTON_VETO &&
@@ -833,6 +862,7 @@ int main(int argc, char *argv[]) {
               << std::endl;
 
     stats.print(processName);
+    elecStats.print();
 
     // Отрисовка и сохранение гистограмм (только PDF)
     std::cout << "Отрисовка гистограмм..." << std::endl;
@@ -866,6 +896,9 @@ int main(int argc, char *argv[]) {
     drawHistogram1D(hMETpfo, "cMETpfo", "MET_{PFO} [GeV]", OUTPUT_MET_PFO, -1, "", kOrange + 1, 2);
     drawHistogram1D(hMETjet, "cMETjet", "MET_{jet} [GeV]", OUTPUT_MET_JET, -1, "", kViolet, 2);
 
+    drawHistogram1D(hCosThetaIsoElec, "cCosThetaIsoElec", "cos#theta",
+                    makeOutputPath("cosTheta_iso_elec"), -1, "", kRed, 2);
+
     // Очистка памяти
     delete hInvMass;
     delete hRecoilMass;
@@ -876,6 +909,7 @@ int main(int argc, char *argv[]) {
     delete hCosThetaJet;
     delete hMETpfo;
     delete hMETjet;
+    delete hCosThetaIsoElec;
     inputFile->Close();
     delete inputFile;
 
