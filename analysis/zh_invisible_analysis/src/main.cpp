@@ -679,6 +679,13 @@ int main(int argc, char *argv[]) {
     TH1F *hCosThetaIsoElec =
         new TH1F("hCosThetaIsoElec", "cos#theta of Isolated Electrons;cos#theta;Events",
                  COS_THETA_ELEC_BINS, COS_THETA_ELEC_MIN, COS_THETA_ELEC_MAX);
+    TH1F *hLeptonEnergyAll =
+        new TH1F("hLeptonEnergyAll ", "Energy of All Leptons;E_{l} [GeV];Events ", LEPTON_E_BINS,
+                 LEPTON_E_MIN_GEV, LEPTON_E_MAX_GEV);
+
+    TH1F *hLeptonEnergyIso =
+        new TH1F("hLeptonEnergyIso ", "Energy of Isolated Leptons;E_{l}^{iso} [GeV];Events ",
+                 LEPTON_E_BINS, LEPTON_E_MIN_GEV, LEPTON_E_MAX_GEV);
 
     // Статистики
     CutStatistics stats;
@@ -693,25 +700,42 @@ int main(int argc, char *argv[]) {
         logProgress(i + 1, nEntries, "Processing");
         stats.totalEvents++;
 
-        // Сбор статистики изолированных электронов
+        // Сбор статистики по лептонам (до всех катов)
+        // Заполняет:
+        // - hCosThetaIsoElec: cos(theta) только для изолированных электронов
+        // - hLeptonEnergyAll: энергия всех лептонов (e/μ)
+        // - hLeptonEnergyIso: энергия только изолированных лептонов (e/μ)
         if (particleType && pfoE && pfoPx && pfoPy && pfoPz) {
             for (size_t k = 0; k < particleType->size(); ++k) {
-                // Отбираем только электроны/позитроны
-                if (std::abs(particleType->at(k)) == PDG_ELECTRON) {
-                    // Проверяем изоляцию существующей функцией
-                    if (isLeptonIsolatedROOT_FSR(k, particleType, pfoE, pfoPx, pfoPy, pfoPz)) {
-                        double px = pfoPx->at(k);
-                        double py = pfoPy->at(k);
-                        double pz = pfoPz->at(k);
-                        double p = std::sqrt(px * px + py * py + pz * pz);
-                        double cosTheta = (p > 1e-9) ? pz / p : 0.0;
+                int pdg = std::abs(particleType->at(k));
 
-                        hCosThetaIsoElec->Fill(cosTheta);
-                        elecStats.total++;
-                        if (std::abs(cosTheta) < 0.7)
-                            elecStats.barrel++;
-                        else
-                            elecStats.endcap++;
+                // Отбираем электроны и мюоны
+                if (pdg == PDG_ELECTRON || pdg == PDG_MUON) {
+                    double energy = pfoE->at(k);
+                    double px = pfoPx->at(k);
+                    double py = pfoPy->at(k);
+                    double pz = pfoPz->at(k);
+
+                    // 1. Заполняем гистограмму энергии всех лептонов
+                    hLeptonEnergyAll->Fill(energy);
+
+                    // 2. Проверяем изоляцию
+                    if (isLeptonIsolatedROOT_FSR(k, particleType, pfoE, pfoPx, pfoPy, pfoPz)) {
+                        // 2a. Заполняем гистограмму энергии изолированных лептонов
+                        hLeptonEnergyIso->Fill(energy);
+
+                        // 2b. Для электронов дополнительно считаем cos(theta) и геометрию
+                        if (pdg == PDG_ELECTRON) {
+                            double p = std::sqrt(px * px + py * py + pz * pz);
+                            double cosTheta = (p > 1e-9) ? pz / p : 0.0;
+
+                            hCosThetaIsoElec->Fill(cosTheta);
+                            elecStats.total++;
+                            if (std::abs(cosTheta) < 0.7)
+                                elecStats.barrel++;
+                            else
+                                elecStats.endcap++;
+                        }
                     }
                 }
             }
@@ -899,6 +923,10 @@ int main(int argc, char *argv[]) {
 
     drawHistogram1D(hCosThetaIsoElec, "cCosThetaIsoElec", "cos#theta",
                     makeOutputPath("cosTheta_iso_elec"), -1, "", kRed, 2);
+    drawHistogram1D(hLeptonEnergyAll, "cLeptonEnergyAll", "E_{l} [GeV]",
+                    makeOutputPath("lepton_energy_all"), -1, " ", kBlue, 2);
+    drawHistogram1D(hLeptonEnergyIso, "cLeptonEnergyIso", "E_{l}^{iso} [GeV]",
+                    makeOutputPath("lepton_energy_iso"), -1, " ", kRed, 2);
 
     // Очистка памяти
     delete hInvMass;
@@ -911,6 +939,8 @@ int main(int argc, char *argv[]) {
     delete hMETpfo;
     delete hMETjet;
     delete hCosThetaIsoElec;
+    delete hLeptonEnergyAll;
+    delete hLeptonEnergyIso;
     inputFile->Close();
     delete inputFile;
 

@@ -112,6 +112,11 @@ const int COS_THETA_ELEC_BINS = 100;
 const double COS_THETA_ELEC_MIN = -1.0;
 const double COS_THETA_ELEC_MAX = 1.0;
 
+// Параметры для гистограмм энергии лептонов
+const int LEPTON_E_BINS = 100;
+const double LEPTON_E_MIN_GEV = 0.0;
+const double LEPTON_E_MAX_GEV = 120.0;
+
 // Параметры для гистограмм потерянной поперечной энергии
 const int MET_PFO_BINS = 100;
 const double MET_PFO_MIN = 0.0;
