@@ -205,6 +205,39 @@ double calculateConeEnergy(size_t centerIdx, const std::vector<double> *pfoE,
     return coneE;
 }
 
+// Вычисление энергии в конусе, исключая фотоны (для подавления FSR-эффекта)
+double calculateConeEnergyExclPhotons(size_t centerIdx, const std::vector<int> *types,
+                                      const std::vector<double> *pfoE,
+                                      const std::vector<double> *px, const std::vector<double> *py,
+                                      const std::vector<double> *pz, double cosConeCut) {
+    if (!types || !pfoE || !px || !py || !pz || centerIdx >= pfoE->size())
+        return 0.0;
+    double coneE = 0.0;
+    double px1 = px->at(centerIdx), py1 = py->at(centerIdx), pz1 = pz->at(centerIdx);
+    double p1 = std::sqrt(px1 * px1 + py1 * py1 + pz1 * pz1);
+    if (p1 < 1e-9)
+        return 0.0;
+
+    for (size_t i = 0; i < pfoE->size(); ++i) {
+        if (i == centerIdx)
+            continue;
+        // Игнорируем фотоны
+        if (std::abs(types->at(i)) == PDG_PHOTON)
+            continue;
+
+        double px2 = px->at(i), py2 = py->at(i), pz2 = pz->at(i);
+        double p2 = std::sqrt(px2 * px2 + py2 * py2 + pz2 * pz2);
+        if (p2 < 1e-9)
+            continue;
+
+        double cosTheta = (px1 * px2 + py1 * py2 + pz1 * pz2) / (p1 * p2);
+        cosTheta = std::max(-1.0, std::min(1.0, cosTheta));
+        if (cosTheta >= cosConeCut)
+            coneE += pfoE->at(i);
+    }
+    return coneE;
+}
+
 // Проверка наличия изолированных фотонов
 bool hasIsolatedPhoton(const std::vector<int> *particleTypes, const std::vector<double> *pfoE,
                        const std::vector<double> *pfoPx, const std::vector<double> *pfoPy,
@@ -226,6 +259,43 @@ bool hasIsolatedPhoton(const std::vector<int> *particleTypes, const std::vector<
                 return true;
             }
         }
+    }
+    return false;
+}
+
+// Проверка изоляции одного лептона с игнорированием фотонов в конусе
+bool isLeptonIsolatedROOT_FSR(size_t idx, const std::vector<int> *types,
+                              const std::vector<double> *energies, const std::vector<double> *px,
+                              const std::vector<double> *py, const std::vector<double> *pz) {
+    if (!types || !energies || !px || !py || !pz || idx >= types->size())
+        return false;
+    int pdg = std::abs(types->at(idx));
+    if (pdg != 11 && pdg != 13)
+        return false; // только e/mu
+
+    double trackE = energies->at(idx);
+    // Прямоугольные критерии по энергии трека
+    if (trackE < LEPTON_ISO_MIN_TRACK_E_GEV || trackE > LEPTON_ISO_MAX_TRACK_E_GEV)
+        return false;
+
+    // Энергия в конусе без учёта фотонов
+    double coneE =
+        calculateConeEnergyExclPhotons(idx, types, energies, px, py, pz, LEPTON_ISO_COS_CONE_ANGLE);
+    if (coneE < LEPTON_ISO_MIN_CONE_E_GEV || coneE > LEPTON_ISO_MAX_CONE_E_GEV)
+        return false;
+
+    return true;
+}
+
+// Проверка наличия изолированного лептона в событии
+bool hasIsolatedLeptonROOT_FSR(const std::vector<int> *types, const std::vector<double> *energies,
+                               const std::vector<double> *px, const std::vector<double> *py,
+                               const std::vector<double> *pz) {
+    if (!types || !energies)
+        return false;
+    for (size_t i = 0; i < types->size(); ++i) {
+        if (isLeptonIsolatedROOT_FSR(i, types, energies, px, py, pz))
+            return true;
     }
     return false;
 }
@@ -618,8 +688,9 @@ int main(int argc, char *argv[]) {
         logProgress(i + 1, nEntries, "Processing");
         stats.totalEvents++;
 
-        // Cut 1: Veto на изолированные лептоны
-        if (APPLY_LEPTON_VETO && hasIsolatedLepton(isIsolatedLeptonFlag)) {
+        // Cut 1: Veto на изолированные лептоны с учетом FSR
+        if (APPLY_LEPTON_VETO &&
+            hasIsolatedLeptonROOT_FSR(particleType, pfoE, pfoPx, pfoPy, pfoPz)) {
             continue;
         }
         stats.afterLeptonVeto++;

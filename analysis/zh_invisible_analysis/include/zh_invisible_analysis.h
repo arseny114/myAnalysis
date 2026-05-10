@@ -10,6 +10,11 @@
 
 // Вето на изолированные лептоны
 #define APPLY_LEPTON_VETO true
+const double LEPTON_ISO_COS_CONE_ANGLE = 0.985; // cosConeAngle
+const double LEPTON_ISO_MIN_TRACK_E_GEV = 5.0;  // isoMinTrackEnergy
+const double LEPTON_ISO_MAX_TRACK_E_GEV = 1e20; // isoMaxTrackEnergy
+const double LEPTON_ISO_MIN_CONE_E_GEV = 0.0;   // isoMinConeEnergy
+const double LEPTON_ISO_MAX_CONE_E_GEV = 2.0;   // isoMaxConeEnergy
 
 // Вето на высокоэнергетические фотоны
 #define APPLY_HIGH_E_PHOTON_VETO true
