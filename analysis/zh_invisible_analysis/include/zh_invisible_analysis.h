@@ -10,13 +10,19 @@
 
 // Вето на изолированные лептоны
 #define APPLY_LEPTON_VETO true
+#define DEBUG_LEPTON_ISOLATION true
+const double LEPTON_ISO_COS_CONE_ANGLE = 0.985; // cosConeAngle
+const double LEPTON_ISO_MIN_TRACK_E_GEV = 5.0;  // isoMinTrackEnergy
+const double LEPTON_ISO_MAX_TRACK_E_GEV = 1e20; // isoMaxTrackEnergy
+const double LEPTON_ISO_MIN_CONE_E_GEV = 0.0;   // isoMinConeEnergy
+const double LEPTON_ISO_MAX_CONE_E_GEV = 2.0;   // isoMaxConeEnergy
 
 // Вето на высокоэнергетические фотоны
-#define APPLY_HIGH_E_PHOTON_VETO true
+#define APPLY_HIGH_E_PHOTON_VETO false
 #define PHOTON_ENERGY_CUT_GEV 30.0 // Порог энергии фотона для вето
 
 // Вето на изолированные фотоны
-#define APPLY_ISOLATED_PHOTON_VETO true
+#define APPLY_ISOLATED_PHOTON_VETO false
 const double PHOTON_ISO_MIN_ENERGY_GEV = 5.0;
 const double PHOTON_ISO_MAX_CONE_ENERGY_GEV = 2.0;
 const double PHOTON_ISO_COS_CONE_ANGLE = 0.985;
@@ -25,7 +31,7 @@ const double PHOTON_ISO_COS_CONE_ANGLE = 0.985;
 #define REQUIRE_EXACTLY_TWO_INCLUSIVE_JETS true
 
 // Требование минимального числа конституентов в каждом из двух джетов
-#define REQUIRE_MIN_CONSTITUENTS_PER_JET true
+#define REQUIRE_MIN_CONSTITUENTS_PER_JET false
 #define MIN_CONSTITUENTS_PER_JET 6
 
 // Окно инвариантной массы диджета (ГэВ)
@@ -39,11 +45,11 @@ const double PHOTON_ISO_COS_CONE_ANGLE = 0.985;
 #define RECOIL_MASS_WINDOW_MAX_GEV 145.0
 
 // Кат на полярный угол системы двух джетов (Z-бозона)
-#define APPLY_COS_THETA_Z_CUT true
+#define APPLY_COS_THETA_Z_CUT false
 const double COS_THETA_Z_CUT = 0.98;
 
 // Настройки эллиптического ката на M_jj vs M_recoil
-#define APPLY_ELLIPSE_CUT true
+#define APPLY_ELLIPSE_CUT false
 
 // Параметры эллипса: ((x-x0)cosθ + (y-y0)sinθ)²/a² + (-(x-x0)sinθ + (y-y0)cosθ)²/b² <= 1
 const double ELLIPSE_CX_GEV = 87.5;           // Центр по M_inv

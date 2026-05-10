@@ -33,6 +33,7 @@
 #include <chrono>
 #include <cmath>
 #include <filesystem>
+#include <iomanip>
 #include <iostream>
 #include <string>
 #include <vector>
@@ -228,6 +229,83 @@ bool hasIsolatedPhoton(const std::vector<int> *particleTypes, const std::vector<
         }
     }
     return false;
+}
+
+// Проверка изоляции одного лептона по алгоритму Gaudi (прямоугольные критерии)
+bool isLeptonIsolatedROOT(size_t idx, const std::vector<int> *types,
+                          const std::vector<double> *energies, const std::vector<double> *px,
+                          const std::vector<double> *py, const std::vector<double> *pz) {
+    if (!types || !energies || !px || !py || !pz || idx >= types->size())
+        return false;
+
+    int pdg = std::abs(types->at(idx));
+    if (pdg != 11 && pdg != 13)
+        return false; // только e/mu
+
+    double trackE = energies->at(idx);
+    // Прямоугольные критерии по энергии трека
+    if (trackE < LEPTON_ISO_MIN_TRACK_E_GEV || trackE > LEPTON_ISO_MAX_TRACK_E_GEV)
+        return false;
+
+    // Энергия в конусе (используем уже существующую функцию из вашего кода)
+    double coneE = calculateConeEnergy(idx, energies, px, py, pz, LEPTON_ISO_COS_CONE_ANGLE);
+    // Прямоугольные критерии по энергии в конусе
+    if (coneE < LEPTON_ISO_MIN_CONE_E_GEV || coneE > LEPTON_ISO_MAX_CONE_E_GEV)
+        return false;
+
+    return true; // Лептон считается изолированным
+}
+
+// Проверка наличия хотя бы одного изолированного лептона в событии
+bool hasIsolatedLeptonROOT(const std::vector<int> *types, const std::vector<double> *energies,
+                           const std::vector<double> *px, const std::vector<double> *py,
+                           const std::vector<double> *pz) {
+    if (!types || !energies)
+        return false;
+    for (size_t i = 0; i < types->size(); ++i) {
+        if (isLeptonIsolatedROOT(i, types, energies, px, py, pz))
+            return true;
+    }
+    return false;
+}
+
+// Детальная таблица изоляции лептонов в событии
+void printLeptonIsolationDebugTable(size_t eventNum, const std::vector<int> *types,
+                                    const std::vector<double> *energies,
+                                    const std::vector<double> *px, const std::vector<double> *py,
+                                    const std::vector<double> *pz,
+                                    const std::vector<int> *gaudiFlags) {
+    if (!types || !energies || !px || !py || !pz || !gaudiFlags)
+        return;
+    if (gaudiFlags->size() != types->size())
+        return;
+
+    std::cout << "\n[DEBUG TABLE] Event " << eventNum << " | Lepton Isolation Check:\n";
+    std::cout << std::left << std::setw(5) << "Idx" << std::setw(6) << "PDG" << std::setw(10)
+              << "E(GeV)" << std::setw(8) << "Gaudi" << std::setw(12) << "ConeE(GeV)"
+              << std::setw(8) << "ROOT"
+              << "\n";
+    std::cout << std::string(49, '-') << "\n";
+
+    for (size_t i = 0; i < types->size(); ++i) {
+        int pdg = std::abs(types->at(i));
+        if (pdg != 11 && pdg != 13)
+            continue; // Только электроны и мюоны
+
+        double E = energies->at(i);
+        int gFlag = gaudiFlags->at(i);
+        double coneE = calculateConeEnergy(i, energies, px, py, pz, LEPTON_ISO_COS_CONE_ANGLE);
+
+        // Прямое повторение логики isLeptonIsolatedROOT
+        bool rootIso = (E >= LEPTON_ISO_MIN_TRACK_E_GEV && E <= LEPTON_ISO_MAX_TRACK_E_GEV &&
+                        coneE >= LEPTON_ISO_MIN_CONE_E_GEV && coneE <= LEPTON_ISO_MAX_CONE_E_GEV);
+
+        std::cout << std::left << std::setw(5) << i << std::setw(6) << pdg << std::setw(10)
+                  << std::fixed << std::setprecision(2) << E << std::setw(8) << gFlag
+                  << std::setw(12) << std::fixed << std::setprecision(3) << coneE << std::setw(8)
+                  << (rootIso ? "ISO" : "clean") << "\n";
+    }
+    std::cout << std::string(49, '-') << "\n\n";
 }
 
 // Отрисовка 1D гистограммы с линиями маркерами
@@ -563,7 +641,7 @@ int main(int argc, char *argv[]) {
     if (APPLY_LEPTON_VETO) {
         tree->SetBranchAddress("isIsolatedLeptonFlag", &isIsolatedLeptonFlag);
     }
-    if (APPLY_HIGH_E_PHOTON_VETO || APPLY_ISOLATED_PHOTON_VETO) {
+    if (DEBUG_LEPTON_ISOLATION || APPLY_HIGH_E_PHOTON_VETO || APPLY_ISOLATED_PHOTON_VETO) {
         tree->SetBranchAddress("particleType", &particleType);
         tree->SetBranchAddress("pfoE", &pfoE);
         tree->SetBranchAddress("pfoPx", &pfoPx);
@@ -618,9 +696,32 @@ int main(int argc, char *argv[]) {
         logProgress(i + 1, nEntries, "Processing");
         stats.totalEvents++;
 
-        // Cut 1: Veto на изолированные лептоны
-        if (APPLY_LEPTON_VETO && hasIsolatedLepton(isIsolatedLeptonFlag)) {
-            continue;
+        // Cut 1: Veto на изолированные лептоны (сравнение Gaudi флага и ROOT-расчета)
+        if (APPLY_LEPTON_VETO) {
+            bool gaudiHasIsoLepton = hasIsolatedLepton(isIsolatedLeptonFlag);
+            bool rootHasIsoLepton = false;
+
+            if (DEBUG_LEPTON_ISOLATION) {
+                rootHasIsoLepton = hasIsolatedLeptonROOT(particleType, pfoE, pfoPx, pfoPy, pfoPz);
+
+                // Печатаем таблицу при срабатывании вето или при рассинхроне флагов (лимит 20
+                // событий)
+                // static int debugPrintCount = 0;
+                // if (rootHasIsoLepton || gaudiHasIsoLepton != rootHasIsoLepton) { // &&
+                // debugPrintCount < 20) {
+                // debugPrintCount++;
+                printLeptonIsolationDebugTable(i + 1, particleType, pfoE, pfoPx, pfoPy, pfoPz,
+                                               isIsolatedLeptonFlag);
+                // }
+
+                // В отладке вето срабатывает по независимому ROOT-расчёту
+                if (rootHasIsoLepton)
+                    continue;
+            } else {
+                // Стандартное поведение: veto по флагу из процессора
+                if (gaudiHasIsoLepton)
+                    continue;
+            }
         }
         stats.afterLeptonVeto++;
 
