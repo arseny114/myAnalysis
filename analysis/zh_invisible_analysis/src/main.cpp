@@ -137,17 +137,6 @@ bool isInsideEllipse(double x, double y, double cx, double cy, double a, double 
     return (value <= 1.0);
 }
 
-// Проверка наличия изолированных лептонов в событии
-bool hasIsolatedLepton(const std::vector<int> *flags) {
-    if (!flags)
-        return false;
-    for (int flag : *flags) {
-        if (flag == 1)
-            return true;
-    }
-    return false;
-}
-
 // Проверка наличия фотонов с энергией выше порога
 bool hasHighEnergyPhoton(const std::vector<int> *particleTypes,
                          const std::vector<double> *particleEnergies, double energyCut) {
@@ -302,15 +291,14 @@ bool hasIsolatedLeptonROOT_FSR(const std::vector<int> *types, const std::vector<
 
 // Отрисовка 1D гистограммы с линиями маркерами
 void drawHistogram1D(TH1F *hist, const std::string &canvasTitle, const std::string &xTitle,
-                     const std::string &outputFile, double markLine = -1,
-                     const std::string &markLabel = "", Color_t markColor = kRed,
-                     int lineWidth = 2) {
+                     const std::string &outputFile,
+                     const std::vector<std::pair<double, std::string>> &markLines = {},
+                     Color_t markColor = kRed, int lineWidth = 2) {
     TCanvas *c = new TCanvas(canvasTitle.c_str(), canvasTitle.c_str(), 900, 700);
     c->SetLeftMargin(0.12);
     c->SetRightMargin(0.05);
     c->SetTopMargin(0.08);
     c->SetBottomMargin(0.12);
-
     gStyle->SetOptStat(1111);
     hist->GetXaxis()->SetTitle(xTitle.c_str());
     hist->GetXaxis()->SetTitleSize(0.045);
@@ -321,21 +309,24 @@ void drawHistogram1D(TH1F *hist, const std::string &canvasTitle, const std::stri
     hist->SetLineWidth(lineWidth);
     hist->Draw("HIST");
 
-    if (markLine > 0) {
-        double ymin = hist->GetMinimum();
-        double ymax = hist->GetMaximum();
-        if (gPad->GetLogy()) {
-            ymin = std::max(0.1, ymin * 0.1);
-            ymax *= 10;
-        }
+    double ymin = hist->GetMinimum();
+    double ymax = hist->GetMaximum();
+    if (gPad->GetLogy()) {
+        ymin = std::max(0.1, ymin * 0.1);
+        ymax *= 10;
+    }
 
-        TLine *line = new TLine(markLine, ymin, markLine, ymax);
+    for (const auto &mark : markLines) {
+        if (mark.first <= 0.0)
+            continue; // Пропускаем невалидные пороги
+        TLine *line = new TLine(mark.first, ymin, mark.first, ymax);
         line->SetLineColor(markColor);
-        line->SetLineWidth(2);
+        line->SetLineWidth(lineWidth);
         line->SetLineStyle(kDashed);
         line->Draw();
 
-        TLatex *label = new TLatex(markLine + 3, ymax * 0.9, markLabel.c_str());
+        TLatex *label =
+            new TLatex(mark.first + (ymax - ymin) * 0.02, ymax * 0.9, mark.second.c_str());
         label->SetTextColor(markColor);
         label->SetTextSize(0.035);
         label->SetTextAlign(12);
@@ -625,17 +616,13 @@ int main(int argc, char *argv[]) {
     tree->SetBranchAddress("inclusiveJetSize", &inclJetSize);
 
     // Ветви для lepton veto и photon veto
-    std::vector<int> *isIsolatedLeptonFlag = nullptr;
     std::vector<int> *particleType = nullptr;
     std::vector<double> *pfoE = nullptr;
     std::vector<double> *pfoPx = nullptr;
     std::vector<double> *pfoPy = nullptr;
     std::vector<double> *pfoPz = nullptr;
 
-    if (APPLY_LEPTON_VETO) {
-        tree->SetBranchAddress("isIsolatedLeptonFlag", &isIsolatedLeptonFlag);
-    }
-    if (APPLY_HIGH_E_PHOTON_VETO || APPLY_ISOLATED_PHOTON_VETO) {
+    if (APPLY_PRE_LEPTON_VETO || APPLY_PRE_HIGH_E_PHOTON_VETO || APPLY_PRE_ISOLATED_PHOTON_VETO) {
         tree->SetBranchAddress("particleType", &particleType);
         tree->SetBranchAddress("pfoE", &pfoE);
         tree->SetBranchAddress("pfoPx", &pfoPx);
@@ -751,150 +738,70 @@ int main(int argc, char *argv[]) {
             }
         }
 
-        // Cut 1: Veto на изолированные лептоны с учетом FSR
-        if (APPLY_LEPTON_VETO &&
-            hasIsolatedLeptonROOT_FSR(particleType, pfoE, pfoPx, pfoPy, pfoPz)) {
+        // ==================== ПРЕДОТБОРЫ ====================
+        if (APPLY_PRE_LEPTON_VETO &&
+            hasIsolatedLeptonROOT_FSR(particleType, pfoE, pfoPx, pfoPy, pfoPz))
             continue;
-        }
-        stats.afterLeptonVeto++;
+        stats.afterPreLeptonVeto++;
 
-        // Cut 2: Требование ровно 2 инклюзивных джета
-        if (REQUIRE_EXACTLY_TWO_INCLUSIVE_JETS && inclJetE->size() != 2) {
+        if (APPLY_PRE_HIGH_E_PHOTON_VETO &&
+            hasHighEnergyPhoton(particleType, pfoE, photonEnergyCut))
             continue;
-        }
-        stats.afterJetCount++;
+        stats.afterPreHighEPhotonVeto++;
 
-        // Cut 3: Требование минимального числа конституентов в каждом из двух джетов
-        if (REQUIRE_MIN_CONSTITUENTS_PER_JET) {
-            int nConst1 = static_cast<int>(inclJetSize->at(0));
-            int nConst2 = static_cast<int>(inclJetSize->at(1));
+        if (APPLY_PRE_ISOLATED_PHOTON_VETO &&
+            hasIsolatedPhoton(particleType, pfoE, pfoPx, pfoPy, pfoPz, PHOTON_ISO_MIN_ENERGY_GEV,
+                              PHOTON_ISO_COS_CONE_ANGLE, PHOTON_ISO_MAX_CONE_ENERGY_GEV))
+            continue;
+        stats.afterPreIsoPhotonVeto++;
 
-            if (nConst1 < minConstituents || nConst2 < minConstituents) {
+        if (APPLY_PRE_TWO_JETS_REQUIREMENT && inclJetE->size() != 2)
+            continue;
+        stats.afterPreJetCount++;
+
+        if (APPLY_PRE_CONSTITUENTS_REQUIREMENT) {
+            int n1 = static_cast<int>(inclJetSize->at(0));
+            int n2 = static_cast<int>(inclJetSize->at(1));
+            if (n1 < minConstituents || n2 < minConstituents)
                 continue;
-            }
         }
-        stats.afterConstituents++;
+        stats.afterPreConstituents++;
 
-        // Расчёт инвариантной и массы отдачи для двух джетов
+        // ==================== КИНЕМАТИКА И ЗАПОЛНЕНИЕ ГИСТОГРАММ ====================
+        // Событие прошло все предотборы, строим распределения
         TLorentzVector jet1(inclJetPx->at(0), inclJetPy->at(0), inclJetPz->at(0), inclJetE->at(0));
         TLorentzVector jet2(inclJetPx->at(1), inclJetPy->at(1), inclJetPz->at(1), inclJetE->at(1));
-
         TLorentzVector dijet = jet1 + jet2;
+
         double invMass = dijet.M();
         double recoilMass = calculateRecoilMass(dijet, SQRT_S_GEV);
-
-        // Расчёт θ и ΔR
-        double thetaZ = calculatePolarAngle(dijet);  // полярный угол системы двух джетов
-        double deltaR = calculateDeltaR(jet1, jet2); // расстояние между джетами
-
-        // Расчёт косинусов углов для джетов
+        double cosThetaZ = std::cos(calculatePolarAngle(dijet));
+        double deltaR = calculateDeltaR(jet1, jet2);
         double cosTheta1 = (jet1.P() > 1e-9) ? jet1.Pz() / jet1.P() : 0.0;
         double cosTheta2 = (jet2.P() > 1e-9) ? jet2.Pz() / jet2.P() : 0.0;
-
-        // Заполнение 2D гистограммы E_photon vs M_recoil (до photon veto)
-        if (particleType && pfoE && particleType->size() == pfoE->size()) {
-            for (size_t ip = 0; ip < particleType->size(); ++ip) {
-                // Проверяем, что это фотон и его энергия выше порога
-                if (std::abs(particleType->at(ip)) == PDG_PHOTON &&
-                    pfoE->at(ip) > PHOTON_ENERGY_CUT_GEV) {
-                    hPhotonE_vs_Recoil->Fill(pfoE->at(ip), recoilMass);
-                }
-            }
-        }
-
-        // Расчет Missing Transverse Energy
         double met_jet = dijet.Pt();
-        double met_pfo = 0.0;
 
-        // Расчет Missing 3-Momentum (Pmiss): векторная сумма всех PFO с обратным знаком
-        // Расчет MET для PFO
-        double pmiss_x = 0.0, pmiss_y = 0.0, pmiss_z = 0.0;
+        double met_pfo = 0.0, pmiss_x = 0.0, pmiss_y = 0.0, pmiss_z = 0.0;
         if (pfoPx && pfoPy && pfoPz) {
-            double sumPx = 0.0, sumPy = 0.0, sumPz = 0.0;
-            for (size_t i = 0; i < pfoPx->size(); ++i) {
-                sumPx += pfoPx->at(i);
-                sumPy += pfoPy->at(i);
-                sumPz += pfoPz->at(i);
+            double sPx = 0, sPy = 0, sPz = 0;
+            for (size_t k = 0; k < pfoPx->size(); ++k) {
+                sPx += pfoPx->at(k);
+                sPy += pfoPy->at(k);
+                sPz += pfoPz->at(k);
             }
-            met_pfo = std::sqrt(sumPx * sumPx + sumPy * sumPy);
-
-            // Pmiss = -(Σ p_i)
-            pmiss_x = -sumPx;
-            pmiss_y = -sumPy;
-            pmiss_z = -sumPz;
+            met_pfo = std::sqrt(sPx * sPx + sPy * sPy);
+            pmiss_x = -sPx;
+            pmiss_y = -sPy;
+            pmiss_z = -sPz;
         }
-
-        // Заполнение гистограмм Pmiss
         double pmiss_mag = std::sqrt(pmiss_x * pmiss_x + pmiss_y * pmiss_y + pmiss_z * pmiss_z);
-        double cosThetaPmiss = 0.0;
-        if (pmiss_mag > 1e-9) {
-            cosThetaPmiss = pmiss_z / pmiss_mag;
-            // Защита от численных ошибок
-            cosThetaPmiss = std::max(-1.0, std::min(1.0, cosThetaPmiss));
-        }
+        double cosThetaPmiss =
+            (pmiss_mag > 1e-9) ? std::max(-1.0, std::min(1.0, pmiss_z / pmiss_mag)) : 0.0;
 
-        // Cut 4: MET (Missing Transverse Energy)
-        if (APPLY_MET_CUT) {
-            if (met_jet < MET_CUT_MIN_GEV) {
-                continue;
-            }
-        }
-        stats.afterMetCut++;
-
-        // Cut 5: Veto на высокоэнергетические фотоны
-        if (APPLY_HIGH_E_PHOTON_VETO && hasHighEnergyPhoton(particleType, pfoE, photonEnergyCut)) {
-            continue;
-        }
-        stats.afterHighEPhotonVeto++;
-
-        // Cut 6: Veto на изолированные фотоны (критерии как для лептонов)
-        if (APPLY_ISOLATED_PHOTON_VETO &&
-            hasIsolatedPhoton(particleType, pfoE, pfoPx, pfoPy, pfoPz, PHOTON_ISO_MIN_ENERGY_GEV,
-                              PHOTON_ISO_COS_CONE_ANGLE, PHOTON_ISO_MAX_CONE_ENERGY_GEV)) {
-            continue;
-        }
-        stats.afterIsoPhotonVeto++;
-
-        // Cut 7: Окно инвариантной массы диджета
-        if (APPLY_DIJET_MASS_WINDOW) {
-            if (invMass < DIJET_MASS_WINDOW_MIN_GEV || invMass > DIJET_MASS_WINDOW_MAX_GEV) {
-                continue;
-            }
-        }
-        stats.afterDijetMassWindow++;
-
-        // Cut 8: |cos(theta_Z)| < 0.98 (угловое распределение Z-бозона)
-        if (APPLY_COS_THETA_Z_CUT) {
-            double cosThetaZ = std::cos(thetaZ);
-            if (std::abs(cosThetaZ) >= COS_THETA_Z_CUT) {
-                continue;
-            }
-        }
-        stats.afterCosThetaZCut++;
-
-        // Cut 9: Окно массы отдачи
-        if (APPLY_RECOIL_MASS_WINDOW) {
-            if (recoilMass < RECOIL_MASS_WINDOW_MIN_GEV ||
-                recoilMass > RECOIL_MASS_WINDOW_MAX_GEV) {
-                continue;
-            }
-        }
-        stats.afterRecoilMassWindow++;
-
-        // Cut 10: Эллиптический cut на M_jj vs M_recoil
-        if (APPLY_ELLIPSE_CUT) {
-            if (!isInsideEllipse(invMass, recoilMass, ELLIPSE_CX_GEV, ELLIPSE_CY_GEV, ELLIPSE_A_GEV,
-                                 ELLIPSE_B_GEV, ELLIPSE_THETA)) {
-                continue;
-            }
-        }
-        stats.afterEllipseCut++;
-
-        // Заполнение гистограмм
         hInvMass->Fill(invMass);
         hRecoilMass->Fill(recoilMass);
         h2D_Correlation->Fill(invMass, recoilMass);
-        hCosThetaZ->Fill(std::cos(thetaZ));
+        hCosThetaZ->Fill(cosThetaZ);
         hDeltaR->Fill(deltaR);
         hCosThetaJet->Fill(cosTheta1);
         hCosThetaJet->Fill(cosTheta2);
@@ -902,6 +809,40 @@ int main(int argc, char *argv[]) {
         hMETjet->Fill(met_jet);
         hPmissMag->Fill(pmiss_mag);
         hCosThetaPmiss->Fill(cosThetaPmiss);
+
+        if (particleType && pfoE && particleType->size() == pfoE->size()) {
+            for (size_t ip = 0; ip < particleType->size(); ++ip) {
+                if (std::abs(particleType->at(ip)) == PDG_PHOTON &&
+                    pfoE->at(ip) > PHOTON_ENERGY_CUT_GEV) {
+                    hPhotonE_vs_Recoil->Fill(pfoE->at(ip), recoilMass);
+                }
+            }
+        }
+
+        // ==================== ОСНОВНЫЕ ОТБОРЫ ====================
+        if (APPLY_MAIN_MET_CUT && met_jet < MET_CUT_MIN_GEV)
+            continue;
+        stats.afterMetCut++;
+
+        if (APPLY_MAIN_DIJET_MASS_WINDOW &&
+            (invMass < DIJET_MASS_WINDOW_MIN_GEV || invMass > DIJET_MASS_WINDOW_MAX_GEV))
+            continue;
+        stats.afterDijetMassWindow++;
+
+        if (APPLY_MAIN_COS_THETA_Z_CUT && std::abs(cosThetaZ) >= COS_THETA_Z_CUT)
+            continue;
+        stats.afterCosThetaZCut++;
+
+        if (APPLY_MAIN_RECOIL_MASS_WINDOW &&
+            (recoilMass < RECOIL_MASS_WINDOW_MIN_GEV || recoilMass > RECOIL_MASS_WINDOW_MAX_GEV))
+            continue;
+        stats.afterRecoilMassWindow++;
+
+        if (APPLY_MAIN_ELLIPSE_CUT &&
+            !isInsideEllipse(invMass, recoilMass, ELLIPSE_CX_GEV, ELLIPSE_CY_GEV, ELLIPSE_A_GEV,
+                             ELLIPSE_B_GEV, ELLIPSE_THETA))
+            continue;
+        stats.afterEllipseCut++;
 
         stats.finalSelected++;
     }
@@ -919,18 +860,25 @@ int main(int argc, char *argv[]) {
     stats.print(processName);
     elecStats.print();
 
-    // Отрисовка и сохранение гистограмм (только PDF)
-    std::cout << "Отрисовка гистограмм..." << std::endl;
+    // Отрисовка гистограмм с условным отображением основных отборов
+    std::vector<std::pair<double, std::string>> invMassMarks = {{MZ_GEV, "M_{Z}"}};
+#if APPLY_MAIN_DIJET_MASS_WINDOW
+    invMassMarks.emplace_back(DIJET_MASS_WINDOW_MIN_GEV, "M_{jj}^{min}");
+    invMassMarks.emplace_back(DIJET_MASS_WINDOW_MAX_GEV, "M_{jj}^{max}");
+#endif
+    drawHistogram1D(hInvMass, "cInvMass", "M_{jj} [GeV]", OUTPUT_INV_MASS, invMassMarks, kRed, 2);
 
-    drawHistogram1D(hInvMass, "cInvMass", "M_{jj} [GeV]", OUTPUT_INV_MASS, MZ_GEV,
-                    "M_{Z} = 91.2 GeV", kRed, 2);
-
-    drawHistogram1D(hRecoilMass, "cRecoilMass", "M_{recoil} [GeV]", OUTPUT_RECOIL_MASS, MH_GEV,
-                    "M_{H} = 125.3 GeV", kBlue, 2);
+    std::vector<std::pair<double, std::string>> recoilMarks = {{MH_GEV, "M_{H}"}};
+#if APPLY_MAIN_RECOIL_MASS_WINDOW
+    recoilMarks.emplace_back(RECOIL_MASS_WINDOW_MIN_GEV, "M_{rec}^{min}");
+    recoilMarks.emplace_back(RECOIL_MASS_WINDOW_MAX_GEV, "M_{rec}^{max}");
+#endif
+    drawHistogram1D(hRecoilMass, "cRecoilMass", "M_{recoil} [GeV]", OUTPUT_RECOIL_MASS, recoilMarks,
+                    kBlue, 2);
 
     drawHistogram2D(h2D_Correlation, "c2D_Correlation", "M_{jj} [GeV]", "M_{recoil} [GeV]",
                     OUTPUT_2D_CORR, MZ_GEV, MH_GEV, "M_{Z}", "M_{H}",
-#if APPLY_ELLIPSE_CUT
+#if APPLY_MAIN_ELLIPSE_CUT
                     ELLIPSE_CX_GEV, ELLIPSE_CY_GEV, ELLIPSE_A_GEV, ELLIPSE_B_GEV, ELLIPSE_THETA,
                     true
 #else
@@ -938,32 +886,39 @@ int main(int argc, char *argv[]) {
 #endif
     );
 
-    drawHistogram1D(hCosThetaZ, "cCosThetaZ ", "cos#theta_{Z} ", OUTPUT_COS_THETA_Z, -1, "", kRed,
-                    2);
+    std::vector<std::pair<double, std::string>> cosThetaMarks;
+#if APPLY_MAIN_COS_THETA_Z_CUT
+    cosThetaMarks.emplace_back(COS_THETA_Z_CUT, "|cos#theta|^{cut}");
+    cosThetaMarks.emplace_back(-COS_THETA_Z_CUT, "-|cos#theta|^{cut}");
+#endif
+    drawHistogram1D(hCosThetaZ, "cCosThetaZ", "cos#theta_{Z}", OUTPUT_COS_THETA_Z, cosThetaMarks,
+                    kRed, 2);
 
-    drawHistogram1D(hDeltaR, "cDeltaR", "#Delta R", OUTPUT_DELTA_R, -1, "", kMagenta, 2);
+    drawHistogram1D(hDeltaR, "cDeltaR", "#Delta R", OUTPUT_DELTA_R, {}, kMagenta, 2);
 
     drawHistogram2D(hPhotonE_vs_Recoil, "cPhotonE_vs_Recoil", "E_{#gamma} [GeV] (pre-veto)",
                     "M_{recoil} [GeV]", OUTPUT_PHOTON_E_VS_RECOIL, -1, -1, "", "");
 
-    drawHistogram1D(hCosThetaJet, "cCosThetaJet", "cos#theta", OUTPUT_COS_THETA_JET, -1, "", kCyan,
-                    2);
+    drawHistogram1D(hCosThetaJet, "cCosThetaJet", "cos#theta", OUTPUT_COS_THETA_JET, {}, kCyan, 2);
 
-    drawHistogram1D(hMETpfo, "cMETpfo", "MET_{PFO} [GeV]", OUTPUT_MET_PFO, -1, "", kOrange + 1, 2);
-    drawHistogram1D(hMETjet, "cMETjet", "MET_{jet} [GeV]", OUTPUT_MET_JET, -1, "", kViolet, 2);
+    drawHistogram1D(hMETpfo, "cMETpfo", "MET_{PFO} [GeV]", OUTPUT_MET_PFO, {}, kOrange + 1, 2);
 
+    std::vector<std::pair<double, std::string>> metMarks;
+#if APPLY_MAIN_MET_CUT
+    metMarks.emplace_back(MET_CUT_MIN_GEV, "MET_{min}");
+#endif
+    drawHistogram1D(hMETjet, "cMETjet", "MET_{jet} [GeV]", OUTPUT_MET_JET, metMarks, kViolet, 2);
+
+    // Остальные гистограммы без линий отборов
     drawHistogram1D(hCosThetaIsoElec, "cCosThetaIsoElec", "cos#theta",
-                    makeOutputPath("cosTheta_iso_elec"), -1, "", kRed, 2);
+                    makeOutputPath("cosTheta_iso_elec"), {}, kRed, 2);
     drawHistogram1D(hLeptonEnergyAll, "cLeptonEnergyAll", "E_{l} [GeV]",
-                    makeOutputPath("lepton_energy_all"), -1, " ", kBlue, 2);
+                    makeOutputPath("lepton_energy_all"), {}, kBlue, 2);
     drawHistogram1D(hLeptonEnergyIso, "cLeptonEnergyIso", "E_{l}^{iso} [GeV]",
-                    makeOutputPath("lepton_energy_iso"), -1, " ", kRed, 2);
-
-    drawHistogram1D(hPmissMag, "cPmissMag", "|P_{miss}| [GeV]", OUTPUT_PMISS_MAG, -1, "", kOrange,
-                    2);
+                    makeOutputPath("lepton_energy_iso"), {}, kRed, 2);
+    drawHistogram1D(hPmissMag, "cPmissMag", "|P_{miss}| [GeV]", OUTPUT_PMISS_MAG, {}, kOrange, 2);
     drawHistogram1D(hCosThetaPmiss, "cCosThetaPmiss", "cos#theta_{miss}", OUTPUT_COS_THETA_PMISS,
-                    -1, "", kMagenta, 2);
-
+                    {}, kMagenta, 2);
     // Очистка памяти
     delete hInvMass;
     delete hRecoilMass;

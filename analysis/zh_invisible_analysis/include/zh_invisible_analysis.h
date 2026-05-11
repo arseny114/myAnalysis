@@ -2,64 +2,73 @@
 #ifndef ZH_INVISIBLE_ANALYSIS_H
 #define ZH_INVISIBLE_ANALYSIS_H
 
+#include <iomanip>
+#include <iostream>
 #include <string>
 
 // =============================================================================
 // НАСТРОЙКИ ОТБОРА
 // =============================================================================
 
-// Вето на изолированные лептоны
-#define APPLY_LEPTON_VETO true
-const double LEPTON_ISO_COS_CONE_ANGLE = 0.985; // cosConeAngle
-const double LEPTON_ISO_MIN_TRACK_E_GEV = 5.0;  // isoMinTrackEnergy
-const double LEPTON_ISO_MAX_TRACK_E_GEV = 1e20; // isoMaxTrackEnergy
-const double LEPTON_ISO_MIN_CONE_E_GEV = 0.0;   // isoMinConeEnergy
-const double LEPTON_ISO_MAX_CONE_E_GEV = 2.0;   // isoMaxConeEnergy
+// =============================================================================
+// ПРЕДОТБОРЫ
+// =============================================================================
 
-// Вето на высокоэнергетические фотоны
-#define APPLY_HIGH_E_PHOTON_VETO true
+// --- 1. Veto на изолированные лептоны ---
+#define APPLY_PRE_LEPTON_VETO true
+const double LEPTON_ISO_COS_CONE_ANGLE = 0.985; // cosConeAngle для изоляции
+const double LEPTON_ISO_MIN_TRACK_E_GEV = 5.0;  // Мин. энергия трека-кандидата
+const double LEPTON_ISO_MAX_TRACK_E_GEV = 1e20; // Макс. энергия трека
+const double LEPTON_ISO_MIN_CONE_E_GEV = 0.0;   // Мин. энергия в конусе
+const double LEPTON_ISO_MAX_CONE_E_GEV = 2.0;   // Макс. энергия в конусе (порог изоляции)
+
+// --- 2. Veto на высокоэнергетические фотоны ---
+#define APPLY_PRE_HIGH_E_PHOTON_VETO true
 #define PHOTON_ENERGY_CUT_GEV 30.0 // Порог энергии фотона для вето
 
-// Вето на изолированные фотоны
-#define APPLY_ISOLATED_PHOTON_VETO true
-const double PHOTON_ISO_MIN_ENERGY_GEV = 5.0;
-const double PHOTON_ISO_MAX_CONE_ENERGY_GEV = 2.0;
-const double PHOTON_ISO_COS_CONE_ANGLE = 0.985;
+// --- 3. Veto на изолированные фотоны ---
+#define APPLY_PRE_ISOLATED_PHOTON_VETO true
+const double PHOTON_ISO_MIN_ENERGY_GEV = 5.0;      // Мин. энергия фотона-кандидата
+const double PHOTON_ISO_MAX_CONE_ENERGY_GEV = 2.0; // Макс. энергия в конусе вокруг фотона
+const double PHOTON_ISO_COS_CONE_ANGLE = 0.985;    // cosConeAngle для фотонной изоляции
 
-// Требование ровно 2 джета в инклюзивном режиме
-#define REQUIRE_EXACTLY_TWO_INCLUSIVE_JETS true
+// --- 4. Требование ровно 2 инклюзивных джета ---
+#define APPLY_PRE_TWO_JETS_REQUIREMENT true
 
-// Требование минимального числа конституентов в каждом из двух джетов
-#define REQUIRE_MIN_CONSTITUENTS_PER_JET true
-#define MIN_CONSTITUENTS_PER_JET 6
+// --- 5. Требование минимального числа конституентов в каждом джете ---
+#define APPLY_PRE_CONSTITUENTS_REQUIREMENT true
+#define MIN_CONSTITUENTS_PER_JET 6 // Мин. число PFO в каждом из двух джетов
 
-// Кат на MET (Missing Transverse Energy)
-#define APPLY_MET_CUT true
-const double MET_CUT_MIN_GEV = 20.0;
+// =============================================================================
+// ОСНОВНЫЕ ОТБОРЫ
+// =============================================================================
 
-// Окно инвариантной массы диджета (ГэВ)
-#define APPLY_DIJET_MASS_WINDOW false
+// --- 6. Кат на MET (Missing Transverse Energy) ---
+#define APPLY_MAIN_MET_CUT true
+const double MET_CUT_MIN_GEV = 20.0; // Мин. MET от двух джетов
+
+// --- 7. Окно инвариантной массы диджета (ГэВ) ---
+#define APPLY_MAIN_DIJET_MASS_WINDOW false
 #define DIJET_MASS_WINDOW_MIN_GEV 75.0
 #define DIJET_MASS_WINDOW_MAX_GEV 105.0
 
-// Окно массы отдачи (ГэВ)
-#define APPLY_RECOIL_MASS_WINDOW false
+// --- 8. Окно массы отдачи (ГэВ) ---
+#define APPLY_MAIN_RECOIL_MASS_WINDOW false
 #define RECOIL_MASS_WINDOW_MIN_GEV 105.0
 #define RECOIL_MASS_WINDOW_MAX_GEV 145.0
 
-// Кат на полярный угол системы двух джетов (Z-бозона)
-#define APPLY_COS_THETA_Z_CUT true
+// --- 9. Кат на полярный угол системы двух джетов ---
+#define APPLY_MAIN_COS_THETA_Z_CUT true
 const double COS_THETA_Z_CUT = 0.98;
 
-// Настройки эллиптического ката на M_jj vs M_recoil
-#define APPLY_ELLIPSE_CUT true
-
-// Параметры эллипса: ((x-x0)cosθ + (y-y0)sinθ)²/a² + (-(x-x0)sinθ + (y-y0)cosθ)²/b² <= 1
-const double ELLIPSE_CX_GEV = 87.5;           // Центр по M_inv
-const double ELLIPSE_CY_GEV = 130.0;          // Центр по M_recoil
-const double ELLIPSE_A_GEV = 27.95;           // Большая полуось
-const double ELLIPSE_B_GEV = 5.59;            // Малая полуось
-const double ELLIPSE_THETA = std::atan(-2.0); // Угол поворота
+// --- 10. Эллиптический кат на плоскости M_jj vs M_recoil ---
+#define APPLY_MAIN_ELLIPSE_CUT true
+// Параметры эллипса: ((x-x₀)cosθ + (y-y₀)sinθ)²/a² + (-(x-x₀)sinθ + (y-y₀)cosθ)²/b² ≤ 1
+const double ELLIPSE_CX_GEV = 87.5;           // Центр по M_inv (ГэВ)
+const double ELLIPSE_CY_GEV = 130.0;          // Центр по M_recoil (ГэВ)
+const double ELLIPSE_A_GEV = 27.95;           // Большая полуось (ГэВ)
+const double ELLIPSE_B_GEV = 5.59;            // Малая полуось (ГэВ)
+const double ELLIPSE_THETA = std::atan(-2.0); // Угол поворота (радианы)
 
 // =============================================================================
 // ПАРАМЕТРЫ ФИЗИКИ И ГИСТОГРАММ
@@ -149,13 +158,35 @@ const bool PRINT_CUT_STATISTICS = true;
 // СТРУКТУРА ДЛЯ СТАТИСТИКИ ПРОХОЖДЕНИЯ КАТОВ
 // =============================================================================
 
+// Считает число символов (не байт) в UTF-8 строке
+inline size_t utf8_char_count(const std::string &s) {
+    size_t count = 0;
+    for (unsigned char c : s) {
+        if ((c & 0xC0) != 0x80)
+            ++count;
+    }
+    return count;
+}
+
+// Дополняет строку пробелами справа до нужной ширины в символах
+inline std::string utf8_ljust(const std::string &s, size_t width) {
+    size_t len = utf8_char_count(s);
+    if (len >= width)
+        return s;
+    return s + std::string(width - len, ' ');
+}
+
 struct CutStatistics {
     Long64_t totalEvents = 0;
-    Long64_t afterLeptonVeto = 0;
-    Long64_t afterHighEPhotonVeto = 0;
-    Long64_t afterIsoPhotonVeto = 0;
-    Long64_t afterJetCount = 0;
-    Long64_t afterConstituents = 0;
+
+    // Статистика по предотборам
+    Long64_t afterPreLeptonVeto = 0;
+    Long64_t afterPreHighEPhotonVeto = 0;
+    Long64_t afterPreIsoPhotonVeto = 0;
+    Long64_t afterPreJetCount = 0;
+    Long64_t afterPreConstituents = 0;
+
+    // Основные отборы
     Long64_t afterMetCut = 0;
     Long64_t afterDijetMassWindow = 0;
     Long64_t afterCosThetaZCut = 0;
@@ -166,54 +197,93 @@ struct CutStatistics {
     void print(const std::string &processName) const {
         if (!PRINT_CUT_STATISTICS)
             return;
-        std::cout << "\n═══════════════════════════════════════════════════" << std::endl;
-        std::cout << "Статистика отбора для процесса: " << processName << std::endl;
-        std::cout << "═══════════════════════════════════════════════════" << std::endl;
-        std::cout << "Всего событий:                    " << totalEvents << std::endl;
-        if (APPLY_LEPTON_VETO) {
-            std::cout << "После lepton veto:                " << afterLeptonVeto << " ("
-                      << 100.0 * afterLeptonVeto / totalEvents << "%)" << std::endl;
+
+        // Лямбда для вывода строки с корректным выравниванием UTF-8
+        auto printRow = [this](const std::string &name, Long64_t passed, Long64_t prev) {
+            double pct_prev = (prev > 0) ? 100.0 * passed / prev : 0.0;
+            double pct_total = (totalEvents > 0) ? 100.0 * passed / totalEvents : 0.0;
+            std::cout << utf8_ljust(name, 55) << std::right << std::setw(8) << passed << "  ("
+                      << std::fixed << std::setprecision(2) << std::setw(6) << pct_prev << "% prev)"
+                      << "  (" << std::fixed << std::setprecision(2) << std::setw(6) << pct_total
+                      << "% tot)\n";
+        };
+
+        const std::string sepWide(100, '=');
+        const std::string sepNarrow(100, '-');
+
+        std::cout << "\n" << sepWide << "\n";
+        std::cout << "Статистика отбора для процесса: " << processName << "\n";
+        std::cout << sepWide << "\n\n";
+
+        // ───────────────── ПРЕДОТБОРЫ ─────────────────
+        std::cout << "\n" << sepNarrow << "\n";
+        std::cout << "ПРЕДОТБОРЫ:\n" << sepNarrow << "\n";
+        std::cout << utf8_ljust("  Всего событий:", 55) << std::right << std::setw(8) << totalEvents
+                  << "\n";
+
+        Long64_t current = totalEvents;
+
+        if (APPLY_PRE_LEPTON_VETO) {
+            printRow("  1. Veto на изолированный лептон:", afterPreLeptonVeto, current);
+            current = afterPreLeptonVeto;
         }
-        if (REQUIRE_EXACTLY_TWO_INCLUSIVE_JETS) {
-            std::cout << "После требования 2 джетов:        " << afterJetCount << " ("
-                      << 100.0 * afterJetCount / totalEvents << "%)" << std::endl;
+
+        if (APPLY_PRE_HIGH_E_PHOTON_VETO) {
+            printRow("  2. Veto на энергичный фотон (>30 GeV):", afterPreHighEPhotonVeto, current);
+            current = afterPreHighEPhotonVeto;
         }
-        if (REQUIRE_MIN_CONSTITUENTS_PER_JET) {
-            std::cout << "После требования конституентов:   " << afterConstituents << " ("
-                      << 100.0 * afterConstituents / totalEvents << "%)" << std::endl;
+
+        if (APPLY_PRE_ISOLATED_PHOTON_VETO) {
+            printRow("  3. Veto на изолированный фотон:", afterPreIsoPhotonVeto, current);
+            current = afterPreIsoPhotonVeto;
         }
-        if (APPLY_MET_CUT) {
-            std::cout << "После MET:                        " << afterMetCut << " ("
-                      << 100.0 * afterMetCut / totalEvents << "%)" << std::endl;
+
+        if (APPLY_PRE_TWO_JETS_REQUIREMENT) {
+            printRow("  4. Требование ровно 2 джетов:", afterPreJetCount, current);
+            current = afterPreJetCount;
         }
-        if (APPLY_HIGH_E_PHOTON_VETO) {
-            std::cout << "После high-E photon veto:         " << afterHighEPhotonVeto << " ("
-                      << 100.0 * afterHighEPhotonVeto / totalEvents << "%)" << std::endl;
+
+        if (APPLY_PRE_CONSTITUENTS_REQUIREMENT) {
+            printRow("  5. Требование >= 6 конституентов/джет:", afterPreConstituents, current);
+            current = afterPreConstituents;
         }
-        if (APPLY_ISOLATED_PHOTON_VETO) {
-            std::cout << "После isolated photon veto:       " << afterIsoPhotonVeto << " ("
-                      << 100.0 * afterIsoPhotonVeto / totalEvents << "%)" << std::endl;
+
+        // ───────────────── ОСНОВНЫЕ ОТБОРЫ ─────────────────
+        std::cout << "\n" << sepNarrow << "\n";
+        std::cout << "ОСНОВНЫЕ ОТБОРЫ:\n" << sepNarrow << "\n";
+
+        if (APPLY_MAIN_MET_CUT) {
+            printRow("  6. MET cut (MET_jet > 20 GeV):", afterMetCut, current);
+            current = afterMetCut;
         }
-        if (APPLY_DIJET_MASS_WINDOW) {
-            std::cout << "После окна массы диджета: " << afterDijetMassWindow << " ("
-                      << 100.0 * afterDijetMassWindow / totalEvents << "%)" << std::endl;
+
+        if (APPLY_MAIN_DIJET_MASS_WINDOW) {
+            printRow("  7. Окно массы диджета:", afterDijetMassWindow, current);
+            current = afterDijetMassWindow;
         }
-        if (APPLY_COS_THETA_Z_CUT) {
-            std::cout << "После |cos#theta_{Z}| < " << COS_THETA_Z_CUT << ":  " << afterCosThetaZCut
-                      << " (" << 100.0 * afterCosThetaZCut / totalEvents << "%)" << std::endl;
+
+        if (APPLY_MAIN_COS_THETA_Z_CUT) {
+            printRow("  8. |cos#theta_{Z}| < 0.98:", afterCosThetaZCut, current);
+            current = afterCosThetaZCut;
         }
-        if (APPLY_RECOIL_MASS_WINDOW) {
-            std::cout << "После окна массы отдачи: " << afterRecoilMassWindow << " ("
-                      << 100.0 * afterRecoilMassWindow / totalEvents << "%)" << std::endl;
+
+        if (APPLY_MAIN_RECOIL_MASS_WINDOW) {
+            printRow("  9. Окно массы отдачи:", afterRecoilMassWindow, current);
+            current = afterRecoilMassWindow;
         }
-        if (APPLY_ELLIPSE_CUT) {
-            std::cout << "После эллиптического cut'а:      " << afterEllipseCut << " ("
-                      << 100.0 * afterEllipseCut / totalEvents << "%)" << std::endl;
+
+        if (APPLY_MAIN_ELLIPSE_CUT) {
+            printRow("  10. Эллиптический cut (Mjj vs Mrecoil):", afterEllipseCut, current);
+            current = afterEllipseCut;
         }
-        std::cout << "───────────────────────────────────────────────────" << std::endl;
-        std::cout << "ФИНАЛЬНО ОТОБРАНО:                  " << finalSelected << " ("
-                  << 100.0 * finalSelected / totalEvents << "%)" << std::endl;
-        std::cout << "═══════════════════════════════════════════════════\n" << std::endl;
+
+        // ───────────────── ИТОГ ─────────────────
+        double finalPct = (totalEvents > 0) ? 100.0 * current / totalEvents : 0.0;
+        std::cout << "\n" << sepNarrow << "\n";
+        std::cout << utf8_ljust("ФИНАЛЬНО ОТОБРАНО:", 55) << std::right << std::setw(8) << current
+                  << "  (" << std::fixed << std::setprecision(2) << std::setw(6) << finalPct
+                  << "%)\n";
+        std::cout << sepWide << "\n\n";
     }
 };
 
@@ -229,12 +299,14 @@ struct IsoElectronStats {
         if (total == 0)
             return;
         std::cout << "\n── Статистика изолированных электронов ──" << std::endl;
-        std::cout << "  Всего изолированных e:         " << total << std::endl;
-        std::cout << "  В барреле (|cos#theta| < 0.7): " << barrel << " (" << 100.0 * barrel / total
-                  << "%)" << std::endl;
-        std::cout << "  В эндкапе (|cos#theta|>= 0.7): " << endcap << " (" << 100.0 * endcap / total
-                  << "%)" << std::endl;
-        std::cout << "───────────────────────────────────────────────────" << std::endl;
+        std::cout << utf8_ljust("  Всего изолированных e:", 40) << total << std::endl;
+        std::cout << utf8_ljust("  В барреле (|cos#theta| < 0.7):", 40) << barrel << " ("
+                  << std::fixed << std::setprecision(2) << 100.0 * barrel / total << "%)"
+                  << std::endl;
+        std::cout << utf8_ljust("  В эндкапе (|cos#theta| >= 0.7):", 40) << endcap << " ("
+                  << std::fixed << std::setprecision(2) << 100.0 * endcap / total << "%)"
+                  << std::endl;
+        std::cout << "──────────────────────────────────────────" << std::endl;
     }
 };
 
