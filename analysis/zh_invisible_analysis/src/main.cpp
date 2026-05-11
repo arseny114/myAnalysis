@@ -1,20 +1,20 @@
 // Анализ для выделения процесса ee -> ZH -> (Z -> qq; H -> invisible)
 //
-// Применяет последовательность катов:
-// 1. Veto на изолированные лептоны
-// 2. Veto на высокоэнергетические фотоны
-// 3. Требование ровно 2 инклюзивных джета
-// 4. Требование минимального числа конституентов в каждом джете (через inclusiveJetSize)
-// 5. Окно по инвариантной массе диджетов
-// 6. Окно по массе отдачи
+// Поддерживает три режима работы:
+// 1. NORMAL (по умолчанию): применяет предотборы и основные отборы, строит гистограммы
+// 2. TRAINING: выполняет только предотборы, сохраняет фичи в ROOT-файл для обучения ML
+// 3. INFERENCE: пропускает предотборы и основные отборы, применяет ML-классификатор,
+//              строит гистограммы для отобранных событий
 //
-// Строит гистограммы:
-// - Инвариантная масса двух джетов
-// - Масса отдачи двух джетов
-// - Полярный угол системы двух джетов
-// - Расстояние deltaR между джетами
-// - 2D распределение: инвариантная масса vs масса отдачи
-// - 2D распределение: E_photon(>PHOTON_ENERGY_CUT_GEV) vs M_recoil
+// Кинематические переменные:
+// - Инвариантная масса двух джетов (M_jj)
+// - Масса отдачи (M_recoil)
+// - Полярный угол системы двух джетов (cosθ_Z)
+// - Расстояние ΔR между джетами
+// - Поперечный импульс диджетной системы (MET_jet ≈ p_T^miss)
+// - Недостающий 3-импульс и его направление
+//
+// Отрисовка: 1D и 2D гистограммы с опциональными линиями отборов и эллипсом
 
 #include <TCanvas.h>
 #include <TFile.h>
@@ -476,6 +476,17 @@ std::string extractProcessName(const std::string &filepath) {
     return filename;
 }
 
+// Заглушка для ML-инференса
+#ifdef USE_XGBOOST_INFERENCE
+#include "../ml/xgboost_model.h"
+bool predictML(const std::vector<double> &features) {
+    // xgboost_model.h экспортирует функцию predict_xgboost(features.data())
+    return predict_xgboost(features.data()) >= 0.5;
+}
+#else
+bool predictML(const std::vector<double> &) { return true; } // Заглушка для компиляции без модели
+#endif
+
 // Вывод справки по использованию
 void printUsage(const char *progName) {
     std::cout << "Анализ для выделения ZH -> qq + invisible\n\n"
@@ -485,13 +496,17 @@ void printUsage(const char *progName) {
               << "  input_root_file    Путь к входному ROOT-файлу с деревом анализа\n\n"
               << "Опции:\n"
               << "  -h, --help         Показать эту справку\n"
-              << "  -o, --output-dir   Базовая директория для результатов "
-                 "(по умолчанию: ../pdf_results)\n"
-              << "  -e, --energy-cut   Порог энергии фотона для veto (ГэВ, по умолчанию: 30)\n"
-              << "  -c, --min-const    Мин. число конституентов в джете (по умолчанию: 6)\n"
+              << "  -m, --mode         Режим работы: normal (по умолчанию), train, infer\n"
+              << "  -l, --label        Метка класса для TRAINING: 0=фон, 1=сигнал\n"
               << "\nПримеры:\n"
-              << "  " << progName << " merged_E240_qqHX.root\n"
-              << "  " << progName << " /path/to/file.root -o ./plots -e 50 -c 8\n";
+              << "  # Обычный режим (предотбор + основные отборы):\n"
+              << "  " << progName << " merged_E240_qqHX.root\n\n"
+              << "  # Генерация данных для обучения (сигнал):\n"
+              << "  " << progName << " merged_E240_qqHinvi.root -m train -l 1\n\n"
+              << "  # Генерация данных для обучения (фон):\n"
+              << "  " << progName << " merged_E240_qqHX.root -m train -l 0\n\n"
+              << "  # Инференс с моделью:\n"
+              << "  " << progName << " merged_E240_qqHX.root -m infer\n";
 }
 
 // =============================================================================
@@ -505,36 +520,50 @@ int main(int argc, char *argv[]) {
         return 1;
     }
 
+    AnalysisMode mode = AnalysisMode::NORMAL;
     std::string inputRootFile;
-    std::string outputBaseDir = OUTPUT_BASE_DIR;
-    double photonEnergyCut = PHOTON_ENERGY_CUT_GEV;
-    int minConstituents = MIN_CONSTITUENTS_PER_JET;
+    std::string labelStr = "0"; // 0=фон, 1=сигнал (для TRAINING)
+    std::string modelPath = "";
 
     for (int i = 1; i < argc; ++i) {
         std::string arg = argv[i];
+
         if (arg == "-h" || arg == "--help") {
             printUsage(argv[0]);
             return 0;
-        } else if (arg == "-o" || arg == "--output-dir") {
+        } else if (arg == "-m" || arg == "--mode") {
             if (i + 1 >= argc) {
-                std::cerr << "Ошибка: после -o/--output-dir требуется указать путь" << std::endl;
-                return 1;
-            }
-            outputBaseDir = argv[++i];
-        } else if (arg == "-e" || arg == "--energy-cut") {
-            if (i + 1 >= argc) {
-                std::cerr << "Ошибка: после -e/--energy-cut требуется указать значение"
+                std::cerr << "Ошибка: после -m/--mode требуется режим (normal/train/infer)"
                           << std::endl;
                 return 1;
             }
-            photonEnergyCut = std::stod(argv[++i]);
-        } else if (arg == "-c" || arg == "--min-const") {
-            if (i + 1 >= argc) {
-                std::cerr << "Ошибка: после -c/--min-const требуется указать значение" << std::endl;
+            std::string val = argv[++i];
+            if (val == "normal")
+                mode = AnalysisMode::NORMAL;
+            else if (val == "train")
+                mode = AnalysisMode::TRAINING;
+            else if (val == "infer")
+                mode = AnalysisMode::INFERENCE;
+            else {
+                std::cerr << "Ошибка: режим должен быть normal, train или infer" << std::endl;
                 return 1;
             }
-            minConstituents = std::stoi(argv[++i]);
+        } else if (arg == "-l" || arg == "--label") {
+            if (i + 1 >= argc) {
+                std::cerr << "Ошибка: после -l/--label требуется значение (0 или 1)" << std::endl;
+                return 1;
+            }
+            labelStr = argv[++i];
+            if (labelStr != "0" && labelStr != "1") {
+                std::cerr << "Ошибка: метка должна быть 0 (фон) или 1 (сигнал)" << std::endl;
+                return 1;
+            }
         } else if (arg[0] != '-') {
+            // Позиционный аргумент — входной файл
+            if (!inputRootFile.empty()) {
+                std::cerr << "Ошибка: указан более одного входного файла" << std::endl;
+                return 1;
+            }
             inputRootFile = arg;
         } else {
             std::cerr << "Неизвестный аргумент: " << arg << std::endl;
@@ -553,8 +582,14 @@ int main(int argc, char *argv[]) {
     std::string processName = extractProcessName(inputRootFile);
     std::cout << "Процесс: " << processName << std::endl;
     std::cout << "Входной файл: " << inputRootFile << std::endl;
+    fs::path mlOutputDir;
+    if (mode == AnalysisMode::TRAINING) {
+        mlOutputDir = fs::path(OUTPUT_ML_BASE_DIR) / "ml_training";
+        fs::create_directories(mlOutputDir);
+        std::cout << "Режим TRAINING: данные будут в " << fs::absolute(mlOutputDir) << std::endl;
+    }
 
-    fs::path processOutputDir = fs::path(outputBaseDir) / processName;
+    fs::path processOutputDir = fs::path(OUTPUT_PDF_BASE_DIR) / processName;
     try {
         fs::create_directories(processOutputDir);
         std::cout << "Директория результатов: " << fs::absolute(processOutputDir) << std::endl;
@@ -628,66 +663,104 @@ int main(int argc, char *argv[]) {
         tree->SetBranchAddress("pfoPz", &pfoPz);
     }
 
+    // Гистограммы создаём только если не в режиме TRAINING
+    TH1F *hInvMass = nullptr, *hRecoilMass = nullptr;
+    TH1F *hCosThetaZ = nullptr, *hDeltaR = nullptr, *hCosThetaJet = nullptr;
+    TH1F *hMETpfo = nullptr, *hMETjet = nullptr, *hPmissMag = nullptr, *hCosThetaPmiss = nullptr;
+    TH2F *h2D_Mrecoil_vs_MET = nullptr, *h2D_Correlation = nullptr, *h2D_Mrecoil_vs_Pmiss = nullptr;
+    TH2F *h2D_MET_vs_Pmiss = nullptr, *h2D_Mjj_vs_MET = nullptr, *h2D_Mjj_vs_Pmiss = nullptr;
+    TH2F *h2D_CosThetaZ_vs_CosThetaPmiss = nullptr;
+
     // Создание гистограмм
-    TH1F *hInvMass = new TH1F("hInvMass", "Invariant Mass of Two Jets;M_{jj} [GeV];Events",
-                              MASS_BINS, MASS_MIN_GEV, MASS_MAX_GEV);
+    if (mode != AnalysisMode::TRAINING) {
+        hInvMass = new TH1F("hInvMass", "Invariant Mass of Two Jets;M_{jj} [GeV];Events", MASS_BINS,
+                            MASS_MIN_GEV, MASS_MAX_GEV);
 
-    TH1F *hRecoilMass =
-        new TH1F("hRecoilMass", "Recoil Mass Against Two Jets;M_{recoil} [GeV];Events", RECOIL_BINS,
-                 RECOIL_MIN_GEV, RECOIL_MAX_GEV);
+        hRecoilMass =
+            new TH1F("hRecoilMass", "Recoil Mass Against Two Jets;M_{recoil} [GeV];Events",
+                     RECOIL_BINS, RECOIL_MIN_GEV, RECOIL_MAX_GEV);
 
-    TH2F *h2D_Correlation = new TH2F(
-        "h2D_Correlation", "Invariant Mass vs Recoil Mass;M_{jj} [GeV];M_{recoil} [GeV]", MASS_BINS,
-        MASS_MIN_GEV, MASS_MAX_GEV, RECOIL_BINS, RECOIL_MIN_GEV, RECOIL_MAX_GEV);
+        h2D_Correlation = new TH2F(
+            "h2D_Correlation", "Invariant Mass vs Recoil Mass;M_{jj} [GeV];M_{recoil} [GeV]",
+            MASS_BINS, MASS_MIN_GEV, MASS_MAX_GEV, RECOIL_BINS, RECOIL_MIN_GEV, RECOIL_MAX_GEV);
 
-    TH1F *hCosThetaZ =
-        new TH1F("hCosThetaZ ", "cos#theta of Z Boson (Two-Jet System);cos#theta_{Z};Events ",
-                 COS_THETA_Z_BINS, COS_THETA_Z_MIN, COS_THETA_Z_MAX);
+        hCosThetaZ =
+            new TH1F("hCosThetaZ ", "cos#theta of Z Boson (Two-Jet System);cos#theta_{Z};Events ",
+                     COS_THETA_Z_BINS, COS_THETA_Z_MIN, COS_THETA_Z_MAX);
 
-    TH1F *hDeltaR = new TH1F("hDeltaR",
-                             "Distance #Delta R Between Two Jets;#Delta R = #sqrt{#Delta#eta^{2} + "
-                             "#Delta#phi^{2}};Events",
-                             DELTA_R_BINS, DELTA_R_MIN, DELTA_R_MAX);
+        hDeltaR = new TH1F("hDeltaR",
+                           "Distance #Delta R Between Two Jets;#Delta R = #sqrt{#Delta#eta^{2} + "
+                           "#Delta#phi^{2}};Events",
+                           DELTA_R_BINS, DELTA_R_MIN, DELTA_R_MAX);
 
-    TH1F *hCosThetaJet = new TH1F("hCosThetaJet", "cos#theta of Jets;cos#theta;Events",
-                                  COS_THETA_JET_BINS, COS_THETA_JET_MIN, COS_THETA_JET_MAX);
+        hCosThetaJet = new TH1F("hCosThetaJet", "cos#theta of Jets;cos#theta;Events",
+                                COS_THETA_JET_BINS, COS_THETA_JET_MIN, COS_THETA_JET_MAX);
 
-    TH1F *hMETpfo = new TH1F("hMETpfo", "MET from all PFOs;MET_{PFO} [GeV];Events", MET_PFO_BINS,
-                             MET_PFO_MIN, MET_PFO_MAX);
-    TH1F *hMETjet = new TH1F("hMETjet", "MET from Two Jets;MET_{jet} [GeV];Events", MET_JET_BINS,
-                             MET_JET_MIN, MET_JET_MAX);
-    TH1F *hPmissMag =
-        new TH1F("hPmissMag", "Magnitude of Missing 3-Momentum;|P_{miss}| [GeV];Events", PMISS_BINS,
-                 PMISS_MIN_GEV, PMISS_MAX_GEV);
+        hMETpfo = new TH1F("hMETpfo", "MET from all PFOs;MET_{PFO} [GeV];Events", MET_PFO_BINS,
+                           MET_PFO_MIN, MET_PFO_MAX);
+        hMETjet = new TH1F("hMETjet", "MET from Two Jets;MET_{jet} [GeV];Events", MET_JET_BINS,
+                           MET_JET_MIN, MET_JET_MAX);
+        hPmissMag = new TH1F("hPmissMag", "Magnitude of Missing 3-Momentum;|P_{miss}| [GeV];Events",
+                             PMISS_BINS, PMISS_MIN_GEV, PMISS_MAX_GEV);
 
-    TH1F *hCosThetaPmiss =
-        new TH1F("hCosThetaPmiss", "cos#theta of Missing 3-Momentum;cos#theta_{miss};Events",
-                 COS_THETA_PMISS_BINS, COS_THETA_PMISS_MIN, COS_THETA_PMISS_MAX);
+        hCosThetaPmiss =
+            new TH1F("hCosThetaPmiss", "cos#theta of Missing 3-Momentum;cos#theta_{miss};Events",
+                     COS_THETA_PMISS_BINS, COS_THETA_PMISS_MIN, COS_THETA_PMISS_MAX);
 
-    TH2F *h2D_Mrecoil_vs_MET = new TH2F(
-        "h2D_Mrecoil_vs_MET", "M_{recoil} vs MET_{jet};MET_{jet} [GeV];M_{recoil} [GeV]",
-        MET_JET_BINS, MET_JET_MIN, MET_JET_MAX, RECOIL_BINS, RECOIL_MIN_GEV, RECOIL_MAX_GEV);
-    TH2F *h2D_Mrecoil_vs_Pmiss = new TH2F(
-        "h2D_Mrecoil_vs_Pmiss", "M_{recoil} vs |P_{miss}|;|P_{miss}| [GeV];M_{recoil} [GeV]",
-        PMISS_BINS, PMISS_MIN_GEV, PMISS_MAX_GEV, RECOIL_BINS, RECOIL_MIN_GEV, RECOIL_MAX_GEV);
-    TH2F *h2D_MET_vs_Pmiss =
-        new TH2F("h2D_MET_vs_Pmiss", "MET_{jet} vs |P_{miss}|;|P_{miss}| [GeV];MET_{jet} [GeV]",
-                 PMISS_BINS, PMISS_MIN_GEV, PMISS_MAX_GEV, MET_JET_BINS, MET_JET_MIN, MET_JET_MAX);
-    TH2F *h2D_Mjj_vs_MET =
-        new TH2F("h2D_Mjj_vs_MET", "M_{jj} vs MET_{jet};MET_{jet} [GeV];M_{jj} [GeV]", MET_JET_BINS,
-                 MET_JET_MIN, MET_JET_MAX, MASS_BINS, MASS_MIN_GEV, MASS_MAX_GEV);
-    TH2F *h2D_Mjj_vs_Pmiss =
-        new TH2F("h2D_Mjj_vs_Pmiss", "M_{jj} vs |P_{miss}|;|P_{miss}| [GeV];M_{jj} [GeV]",
-                 PMISS_BINS, PMISS_MIN_GEV, PMISS_MAX_GEV, MASS_BINS, MASS_MIN_GEV, MASS_MAX_GEV);
-    TH2F *h2D_CosThetaZ_vs_CosThetaPmiss =
-        new TH2F("h2D_CosThetaZ_vs_CosThetaPmiss",
-                 "cos#theta_{Z} vs cos#theta_{miss};cos#theta_{miss};cos#theta_{Z}",
-                 COS_THETA_PMISS_BINS, COS_THETA_PMISS_MIN, COS_THETA_PMISS_MAX, COS_THETA_Z_BINS,
-                 COS_THETA_Z_MIN, COS_THETA_Z_MAX);
+        h2D_Mrecoil_vs_MET = new TH2F(
+            "h2D_Mrecoil_vs_MET", "M_{recoil} vs MET_{jet};MET_{jet} [GeV];M_{recoil} [GeV]",
+            MET_JET_BINS, MET_JET_MIN, MET_JET_MAX, RECOIL_BINS, RECOIL_MIN_GEV, RECOIL_MAX_GEV);
+        h2D_Mrecoil_vs_Pmiss = new TH2F(
+            "h2D_Mrecoil_vs_Pmiss", "M_{recoil} vs |P_{miss}|;|P_{miss}| [GeV];M_{recoil} [GeV]",
+            PMISS_BINS, PMISS_MIN_GEV, PMISS_MAX_GEV, RECOIL_BINS, RECOIL_MIN_GEV, RECOIL_MAX_GEV);
+        h2D_MET_vs_Pmiss = new TH2F(
+            "h2D_MET_vs_Pmiss", "MET_{jet} vs |P_{miss}|;|P_{miss}| [GeV];MET_{jet} [GeV]",
+            PMISS_BINS, PMISS_MIN_GEV, PMISS_MAX_GEV, MET_JET_BINS, MET_JET_MIN, MET_JET_MAX);
+        h2D_Mjj_vs_MET =
+            new TH2F("h2D_Mjj_vs_MET", "M_{jj} vs MET_{jet};MET_{jet} [GeV];M_{jj} [GeV]",
+                     MET_JET_BINS, MET_JET_MIN, MET_JET_MAX, MASS_BINS, MASS_MIN_GEV, MASS_MAX_GEV);
+        h2D_Mjj_vs_Pmiss = new TH2F(
+            "h2D_Mjj_vs_Pmiss", "M_{jj} vs |P_{miss}|;|P_{miss}| [GeV];M_{jj} [GeV]", PMISS_BINS,
+            PMISS_MIN_GEV, PMISS_MAX_GEV, MASS_BINS, MASS_MIN_GEV, MASS_MAX_GEV);
+        h2D_CosThetaZ_vs_CosThetaPmiss =
+            new TH2F("h2D_CosThetaZ_vs_CosThetaPmiss",
+                     "cos#theta_{Z} vs cos#theta_{miss};cos#theta_{miss};cos#theta_{Z}",
+                     COS_THETA_PMISS_BINS, COS_THETA_PMISS_MIN, COS_THETA_PMISS_MAX,
+                     COS_THETA_Z_BINS, COS_THETA_Z_MIN, COS_THETA_Z_MAX);
+    }
 
     // Статистики
     CutStatistics stats;
     IsoElectronStats elecStats;
+
+    // Структура фич
+    MLFeatures trFeat;
+
+    // Создаём TTree для фич
+    TFile *trainFile = nullptr;
+    TTree *trainTree = nullptr;
+    if (mode == AnalysisMode::TRAINING) {
+        std::string trainPath = (mlOutputDir / (processName + "_train.root")).string();
+        trainFile = TFile::Open(trainPath.c_str(), "RECREATE");
+        trainTree = new TTree("ml_features", "ML Training Features");
+        trainTree->Branch("invMass", &trFeat.invMass, "invMass/D");
+        trainTree->Branch("recoilMass", &trFeat.recoilMass, "recoilMass/D");
+        trainTree->Branch("cosThetaZ", &trFeat.cosThetaZ, "cosThetaZ/D");
+        trainTree->Branch("deltaR", &trFeat.deltaR, "deltaR/D");
+        trainTree->Branch("ej1", &trFeat.ej1, "ej1/D");
+        trainTree->Branch("ej2", &trFeat.ej2, "ej2/D");
+        trainTree->Branch("eta_j1", &trFeat.eta_j1, "eta_j1/D");
+        trainTree->Branch("eta_j2", &trFeat.eta_j2, "eta_j2/D");
+        trainTree->Branch("pt_jj", &trFeat.pt_jj, "pt_jj/D");
+        trainTree->Branch("met_pfo", &trFeat.met_pfo, "met_pfo/D");
+        trainTree->Branch("pmag_miss", &trFeat.pmag_miss, "pmag_miss/D");
+        trainTree->Branch("costh_miss", &trFeat.costh_miss, "costh_miss/D");
+        trainTree->Branch("energy_asym", &trFeat.energy_asym, "energy_asym/D");
+        trainTree->Branch("nconst_j1", &trFeat.nconst_j1, "nconst_j1/I");
+        trainTree->Branch("nconst_j2", &trFeat.nconst_j2, "nconst_j2/I");
+        trainTree->Branch("label", &trFeat.label, "label/I");
+        trFeat.label = std::stoi(labelStr);
+    }
 
     // Основной цикл по событиям
     Long64_t nEntries = tree->GetEntries();
@@ -721,14 +794,14 @@ int main(int argc, char *argv[]) {
             }
         }
 
-        // ==================== ПРЕДОТБОРЫ ====================
+        // === ПРЕДОТБОРЫ ===
         if (APPLY_PRE_LEPTON_VETO &&
             hasIsolatedLeptonROOT_FSR(particleType, pfoE, pfoPx, pfoPy, pfoPz))
             continue;
         stats.afterPreLeptonVeto++;
 
         if (APPLY_PRE_HIGH_E_PHOTON_VETO &&
-            hasHighEnergyPhoton(particleType, pfoE, photonEnergyCut))
+            hasHighEnergyPhoton(particleType, pfoE, PHOTON_ENERGY_CUT_GEV))
             continue;
         stats.afterPreHighEPhotonVeto++;
 
@@ -745,13 +818,12 @@ int main(int argc, char *argv[]) {
         if (APPLY_PRE_CONSTITUENTS_REQUIREMENT) {
             int n1 = static_cast<int>(inclJetSize->at(0));
             int n2 = static_cast<int>(inclJetSize->at(1));
-            if (n1 < minConstituents || n2 < minConstituents)
+            if (n1 < MIN_CONSTITUENTS_PER_JET || n2 < MIN_CONSTITUENTS_PER_JET)
                 continue;
         }
         stats.afterPreConstituents++;
 
-        // ==================== КИНЕМАТИКА И ЗАПОЛНЕНИЕ ГИСТОГРАММ ====================
-        // Событие прошло все предотборы, строим распределения
+        // ==================== КИНЕМАТИКА ====================
         TLorentzVector jet1(inclJetPx->at(0), inclJetPy->at(0), inclJetPz->at(0), inclJetE->at(0));
         TLorentzVector jet2(inclJetPx->at(1), inclJetPy->at(1), inclJetPz->at(1), inclJetE->at(1));
         TLorentzVector dijet = jet1 + jet2;
@@ -781,183 +853,236 @@ int main(int argc, char *argv[]) {
         double cosThetaPmiss =
             (pmiss_mag > 1e-9) ? std::max(-1.0, std::min(1.0, pmiss_z / pmiss_mag)) : 0.0;
 
-        hInvMass->Fill(invMass);
-        hRecoilMass->Fill(recoilMass);
-        h2D_Correlation->Fill(invMass, recoilMass);
-        hCosThetaZ->Fill(cosThetaZ);
-        hDeltaR->Fill(deltaR);
-        hCosThetaJet->Fill(cosTheta1);
-        hCosThetaJet->Fill(cosTheta2);
-        hMETpfo->Fill(met_pfo);
-        hMETjet->Fill(met_jet);
-        hPmissMag->Fill(pmiss_mag);
-        hCosThetaPmiss->Fill(cosThetaPmiss);
+        // === РЕЖИМ TRAINING: сохраняем фичи и переходим к следующему событию ===
+        if (mode == AnalysisMode::TRAINING) {
+            trFeat.invMass = invMass;
+            trFeat.recoilMass = recoilMass;
+            trFeat.cosThetaZ = cosThetaZ;
+            trFeat.deltaR = deltaR;
+            trFeat.ej1 = jet1.E();
+            trFeat.ej2 = jet2.E();
+            trFeat.eta_j1 = calculatePseudorapidity(jet1);
+            trFeat.eta_j2 = calculatePseudorapidity(jet2);
+            trFeat.pt_jj = met_jet;
+            trFeat.met_pfo = met_pfo;
+            trFeat.pmag_miss = pmiss_mag;
+            trFeat.costh_miss = cosThetaPmiss;
+            trFeat.energy_asym = (jet1.E() + jet2.E() > 1e-9)
+                                     ? std::abs(jet1.E() - jet2.E()) / (jet1.E() + jet2.E())
+                                     : 0.0;
+            trFeat.nconst_j1 = static_cast<int>(inclJetSize->at(0));
+            trFeat.nconst_j2 = static_cast<int>(inclJetSize->at(1));
+            trainTree->Fill();
+            continue; // не заполняем гистограммы в режиме TRAINING
+        }
 
-        h2D_Mrecoil_vs_MET->Fill(met_jet, recoilMass);
-        h2D_Mrecoil_vs_Pmiss->Fill(pmiss_mag, recoilMass);
-        h2D_MET_vs_Pmiss->Fill(pmiss_mag, met_jet);
-        h2D_Mjj_vs_MET->Fill(met_jet, invMass);
-        h2D_Mjj_vs_Pmiss->Fill(pmiss_mag, invMass);
-        h2D_CosThetaZ_vs_CosThetaPmiss->Fill(cosThetaPmiss, cosThetaZ);
+        // === РЕЖИМ INFERENCE: применяем ML вместо основных отборов ===
+        if (mode == AnalysisMode::INFERENCE) {
+            // Заглушка: замените на реальный вызов XGBoost
+            // bool mlPass = predict_xgboost({invMass, recoilMass, ...}) >= 0.5;
+            bool mlPass = true; // TODO: подключить модель
+            if (!mlPass)
+                continue;
+            stats.finalSelected++;
+        }
 
-        // ==================== ОСНОВНЫЕ ОТБОРЫ ====================
-        if (APPLY_MAIN_MET_CUT && met_jet < MET_CUT_MIN_GEV)
-            continue;
-        stats.afterMetCut++;
+        // === ЗАПОЛНЕНИЕ ГИСТОГРАММ (только NORMAL и INFERENCE) ===
+        if (mode != AnalysisMode::TRAINING) {
+            hInvMass->Fill(invMass);
+            hRecoilMass->Fill(recoilMass);
+            h2D_Correlation->Fill(invMass, recoilMass);
+            hCosThetaZ->Fill(cosThetaZ);
+            hDeltaR->Fill(deltaR);
+            hCosThetaJet->Fill(cosTheta1);
+            hCosThetaJet->Fill(cosTheta2);
+            hMETpfo->Fill(met_pfo);
+            hMETjet->Fill(met_jet);
+            hPmissMag->Fill(pmiss_mag);
+            hCosThetaPmiss->Fill(cosThetaPmiss);
 
-        if (APPLY_MAIN_DIJET_MASS_WINDOW &&
-            (invMass < DIJET_MASS_WINDOW_MIN_GEV || invMass > DIJET_MASS_WINDOW_MAX_GEV))
-            continue;
-        stats.afterDijetMassWindow++;
+            h2D_Mrecoil_vs_MET->Fill(met_jet, recoilMass);
+            h2D_Mrecoil_vs_Pmiss->Fill(pmiss_mag, recoilMass);
+            h2D_MET_vs_Pmiss->Fill(pmiss_mag, met_jet);
+            h2D_Mjj_vs_MET->Fill(met_jet, invMass);
+            h2D_Mjj_vs_Pmiss->Fill(pmiss_mag, invMass);
+            h2D_CosThetaZ_vs_CosThetaPmiss->Fill(cosThetaPmiss, cosThetaZ);
+        }
 
-        if (APPLY_MAIN_COS_THETA_Z_CUT && std::abs(cosThetaZ) >= COS_THETA_Z_CUT)
-            continue;
-        stats.afterCosThetaZCut++;
+        // === ОСНОВНЫЕ ОТБОРЫ (только NORMAL режим) ===
+        if (mode == AnalysisMode::NORMAL) {
+            if (APPLY_MAIN_MET_CUT && met_jet < MET_CUT_MIN_GEV)
+                continue;
+            stats.afterMetCut++;
 
-        if (APPLY_MAIN_RECOIL_MASS_WINDOW &&
-            (recoilMass < RECOIL_MASS_WINDOW_MIN_GEV || recoilMass > RECOIL_MASS_WINDOW_MAX_GEV))
-            continue;
-        stats.afterRecoilMassWindow++;
+            if (APPLY_MAIN_DIJET_MASS_WINDOW &&
+                (invMass < DIJET_MASS_WINDOW_MIN_GEV || invMass > DIJET_MASS_WINDOW_MAX_GEV))
+                continue;
+            stats.afterDijetMassWindow++;
 
-        if (APPLY_MAIN_ELLIPSE_CUT &&
-            !isInsideEllipse(invMass, recoilMass, ELLIPSE_CX_GEV, ELLIPSE_CY_GEV, ELLIPSE_A_GEV,
-                             ELLIPSE_B_GEV, ELLIPSE_THETA))
-            continue;
-        stats.afterEllipseCut++;
+            if (APPLY_MAIN_COS_THETA_Z_CUT && std::abs(cosThetaZ) >= COS_THETA_Z_CUT)
+                continue;
+            stats.afterCosThetaZCut++;
 
-        stats.finalSelected++;
+            if (APPLY_MAIN_RECOIL_MASS_WINDOW && (recoilMass < RECOIL_MASS_WINDOW_MIN_GEV ||
+                                                  recoilMass > RECOIL_MASS_WINDOW_MAX_GEV))
+                continue;
+            stats.afterRecoilMassWindow++;
+
+            if (APPLY_MAIN_ELLIPSE_CUT &&
+                !isInsideEllipse(invMass, recoilMass, ELLIPSE_CX_GEV, ELLIPSE_CY_GEV, ELLIPSE_A_GEV,
+                                 ELLIPSE_B_GEV, ELLIPSE_THETA))
+                continue;
+            stats.afterEllipseCut++;
+            stats.finalSelected++;
+        }
     }
 
-    // Итоговая статистика
-    auto endTime = std::chrono::high_resolution_clock::now();
-    auto totalSec = std::chrono::duration_cast<std::chrono::seconds>(endTime - startTime).count();
+    // TRAINING: сохраняем TTree и выходим
+    if (mode == AnalysisMode::TRAINING) {
+        trainTree->Write();
+        trainFile->Close();
+        std::cout << "\nДанные для обучения сохранены: "
+                  << (mlOutputDir / (processName + "_train.root")).string() << std::endl;
+    }
 
-    std::cout << "\n=======================================================" << std::endl;
-    std::cout << "Обработка завершена!" << std::endl;
-    std::cout << "Всего событий: " << nEntries << std::endl;
-    std::cout << "Прошло времени: " << totalSec << " с (" << totalSec / 60.0 << " мин)"
-              << std::endl;
+    // NORMAL или INFERENCE
+    else {
+        // Итоговая статистика
+        auto endTime = std::chrono::high_resolution_clock::now();
+        auto totalSec =
+            std::chrono::duration_cast<std::chrono::seconds>(endTime - startTime).count();
 
-    stats.print(processName);
-    elecStats.print();
+        std::cout << "\n=======================================================" << std::endl;
+        std::cout << "Обработка завершена!" << std::endl;
+        std::cout << "Всего событий: " << nEntries << std::endl;
+        std::cout << "Прошло времени: " << totalSec << " с (" << totalSec / 60.0 << " мин)"
+                  << std::endl;
 
-    // Отрисовка гистограмм с условным отображением основных отборов
-    std::vector<std::pair<double, std::string>> invMassMarks = {{MZ_GEV, "M_{Z}"}};
+        stats.print(processName);
+        elecStats.print();
+
+        // Отрисовка гистограмм с условным отображением основных отборов
+        std::vector<std::pair<double, std::string>> invMassMarks = {{MZ_GEV, "M_{Z}"}};
 #if APPLY_MAIN_DIJET_MASS_WINDOW
-    invMassMarks.emplace_back(DIJET_MASS_WINDOW_MIN_GEV, "M_{jj}^{min}");
-    invMassMarks.emplace_back(DIJET_MASS_WINDOW_MAX_GEV, "M_{jj}^{max}");
+        invMassMarks.emplace_back(DIJET_MASS_WINDOW_MIN_GEV, "M_{jj}^{min}");
+        invMassMarks.emplace_back(DIJET_MASS_WINDOW_MAX_GEV, "M_{jj}^{max}");
 #endif
-    drawHistogram1D(hInvMass, "cInvMass", "M_{jj} [GeV]", OUTPUT_INV_MASS, invMassMarks, kRed, 2);
+        drawHistogram1D(hInvMass, "cInvMass", "M_{jj} [GeV]", OUTPUT_INV_MASS, invMassMarks, kRed,
+                        2);
 
-    std::vector<std::pair<double, std::string>> recoilMarks = {{MH_GEV, "M_{H}"}};
+        std::vector<std::pair<double, std::string>> recoilMarks = {{MH_GEV, "M_{H}"}};
 #if APPLY_MAIN_RECOIL_MASS_WINDOW
-    recoilMarks.emplace_back(RECOIL_MASS_WINDOW_MIN_GEV, "M_{rec}^{min}");
-    recoilMarks.emplace_back(RECOIL_MASS_WINDOW_MAX_GEV, "M_{rec}^{max}");
+        recoilMarks.emplace_back(RECOIL_MASS_WINDOW_MIN_GEV, "M_{rec}^{min}");
+        recoilMarks.emplace_back(RECOIL_MASS_WINDOW_MAX_GEV, "M_{rec}^{max}");
 #endif
-    drawHistogram1D(hRecoilMass, "cRecoilMass", "M_{recoil} [GeV]", OUTPUT_RECOIL_MASS, recoilMarks,
-                    kBlue, 2);
+        drawHistogram1D(hRecoilMass, "cRecoilMass", "M_{recoil} [GeV]", OUTPUT_RECOIL_MASS,
+                        recoilMarks, kBlue, 2);
 
-    drawHistogram2D(h2D_Correlation, "c2D_Correlation", "M_{jj} [GeV]", "M_{recoil} [GeV]",
-                    OUTPUT_2D_CORR, MZ_GEV, MH_GEV, "M_{Z}", "M_{H}",
+        drawHistogram2D(h2D_Correlation, "c2D_Correlation", "M_{jj} [GeV]", "M_{recoil} [GeV]",
+                        OUTPUT_2D_CORR, MZ_GEV, MH_GEV, "M_{Z}", "M_{H}",
 #if APPLY_MAIN_ELLIPSE_CUT
-                    ELLIPSE_CX_GEV, ELLIPSE_CY_GEV, ELLIPSE_A_GEV, ELLIPSE_B_GEV, ELLIPSE_THETA,
-                    true
+                        ELLIPSE_CX_GEV, ELLIPSE_CY_GEV, ELLIPSE_A_GEV, ELLIPSE_B_GEV, ELLIPSE_THETA,
+                        true
 #else
-                    -1, -1, -1, -1, 0, false
+                        -1, -1, -1, -1, 0, false
 #endif
-    );
+        );
 
-    std::vector<std::pair<double, std::string>> cosThetaMarks;
+        std::vector<std::pair<double, std::string>> cosThetaMarks;
 #if APPLY_MAIN_COS_THETA_Z_CUT
-    cosThetaMarks.emplace_back(COS_THETA_Z_CUT, "|cos#theta|^{cut}");
-    cosThetaMarks.emplace_back(-COS_THETA_Z_CUT, "-|cos#theta|^{cut}");
+        cosThetaMarks.emplace_back(COS_THETA_Z_CUT, "|cos#theta|^{cut}");
+        cosThetaMarks.emplace_back(-COS_THETA_Z_CUT, "-|cos#theta|^{cut}");
 #endif
-    drawHistogram1D(hCosThetaZ, "cCosThetaZ", "cos#theta_{Z}", OUTPUT_COS_THETA_Z, cosThetaMarks,
-                    kRed, 2);
+        drawHistogram1D(hCosThetaZ, "cCosThetaZ", "cos#theta_{Z}", OUTPUT_COS_THETA_Z,
+                        cosThetaMarks, kRed, 2);
 
-    drawHistogram1D(hDeltaR, "cDeltaR", "#Delta R", OUTPUT_DELTA_R, {}, kMagenta, 2);
+        drawHistogram1D(hDeltaR, "cDeltaR", "#Delta R", OUTPUT_DELTA_R, {}, kMagenta, 2);
 
-    drawHistogram1D(hCosThetaJet, "cCosThetaJet", "cos#theta", OUTPUT_COS_THETA_JET, {}, kCyan, 2);
+        drawHistogram1D(hCosThetaJet, "cCosThetaJet", "cos#theta", OUTPUT_COS_THETA_JET, {}, kCyan,
+                        2);
 
-    drawHistogram1D(hMETpfo, "cMETpfo", "MET_{PFO} [GeV]", OUTPUT_MET_PFO, {}, kOrange + 1, 2);
+        drawHistogram1D(hMETpfo, "cMETpfo", "MET_{PFO} [GeV]", OUTPUT_MET_PFO, {}, kOrange + 1, 2);
 
-    std::vector<std::pair<double, std::string>> metMarks;
+        std::vector<std::pair<double, std::string>> metMarks;
 #if APPLY_MAIN_MET_CUT
-    metMarks.emplace_back(MET_CUT_MIN_GEV, "MET_{min}");
+        metMarks.emplace_back(MET_CUT_MIN_GEV, "MET_{min}");
 #endif
-    drawHistogram1D(hMETjet, "cMETjet", "MET_{jet} [GeV]", OUTPUT_MET_JET, metMarks, kViolet, 2);
+        drawHistogram1D(hMETjet, "cMETjet", "MET_{jet} [GeV]", OUTPUT_MET_JET, metMarks, kViolet,
+                        2);
 
-    // h2D_Mrecoil_vs_MET: вертикальная линия MET > 20 GeV
-    drawHistogram2D(h2D_Mrecoil_vs_MET, "c2D_Mrecoil_vs_MET", "MET_{jet} [GeV]", "M_{recoil} [GeV]",
-                    makeOutputPath("2D_Mrecoil_vs_MET"),
+        // h2D_Mrecoil_vs_MET: вертикальная линия MET > 20 GeV
+        drawHistogram2D(h2D_Mrecoil_vs_MET, "c2D_Mrecoil_vs_MET", "MET_{jet} [GeV]",
+                        "M_{recoil} [GeV]", makeOutputPath("2D_Mrecoil_vs_MET"),
 #if APPLY_MAIN_MET_CUT
-                    MET_CUT_MIN_GEV, -1, "MET_{min}", "");
+                        MET_CUT_MIN_GEV, -1, "MET_{min}", "");
 #else
-                    -1, -1, "", "");
+                        -1, -1, "", "");
 #endif
 
-    // h2D_Mrecoil_vs_Pmiss: без активных отборов по этим осям
-    drawHistogram2D(h2D_Mrecoil_vs_Pmiss, "c2D_Mrecoil_vs_Pmiss", "|P_{miss}| [GeV]",
-                    "M_{recoil} [GeV]", makeOutputPath("2D_Mrecoil_vs_Pmiss"));
+        // h2D_Mrecoil_vs_Pmiss: без активных отборов по этим осям
+        drawHistogram2D(h2D_Mrecoil_vs_Pmiss, "c2D_Mrecoil_vs_Pmiss", "|P_{miss}| [GeV]",
+                        "M_{recoil} [GeV]", makeOutputPath("2D_Mrecoil_vs_Pmiss"));
 
-    // h2D_MET_vs_Pmiss: вертикальная линия MET > 20 GeV (ось Y здесь MET)
-    drawHistogram2D(h2D_MET_vs_Pmiss, "c2D_MET_vs_Pmiss", "|P_{miss}| [GeV]", "MET_{jet} [GeV]",
-                    makeOutputPath("2D_MET_vs_Pmiss"),
+        // h2D_MET_vs_Pmiss: вертикальная линия MET > 20 GeV (ось Y здесь MET)
+        drawHistogram2D(h2D_MET_vs_Pmiss, "c2D_MET_vs_Pmiss", "|P_{miss}| [GeV]", "MET_{jet} [GeV]",
+                        makeOutputPath("2D_MET_vs_Pmiss"),
 #if APPLY_MAIN_MET_CUT
-                    -1, MET_CUT_MIN_GEV, "", "MET_{min}");
+                        -1, MET_CUT_MIN_GEV, "", "MET_{min}");
 #else
-                    -1, -1, "", "");
+                        -1, -1, "", "");
 #endif
 
-    // h2D_Mjj_vs_MET: вертикальная линия MET > 20 GeV
-    drawHistogram2D(h2D_Mjj_vs_MET, "c2D_Mjj_vs_MET", "MET_{jet} [GeV]", "M_{jj} [GeV]",
-                    makeOutputPath("2D_Mjj_vs_MET"),
+        // h2D_Mjj_vs_MET: вертикальная линия MET > 20 GeV
+        drawHistogram2D(h2D_Mjj_vs_MET, "c2D_Mjj_vs_MET", "MET_{jet} [GeV]", "M_{jj} [GeV]",
+                        makeOutputPath("2D_Mjj_vs_MET"),
 #if APPLY_MAIN_MET_CUT
-                    MET_CUT_MIN_GEV, -1, "MET_{min}", "");
+                        MET_CUT_MIN_GEV, -1, "MET_{min}", "");
 #else
-                    -1, -1, "", "");
+                        -1, -1, "", "");
 #endif
 
-    // h2D_Mjj_vs_Pmiss: без активных отборов по этим осям
-    drawHistogram2D(h2D_Mjj_vs_Pmiss, "c2D_Mjj_vs_Pmiss", "|P_{miss}| [GeV]", "M_{jj} [GeV]",
-                    makeOutputPath("2D_Mjj_vs_Pmiss"));
+        // h2D_Mjj_vs_Pmiss: без активных отборов по этим осям
+        drawHistogram2D(h2D_Mjj_vs_Pmiss, "c2D_Mjj_vs_Pmiss", "|P_{miss}| [GeV]", "M_{jj} [GeV]",
+                        makeOutputPath("2D_Mjj_vs_Pmiss"));
 
-    // h2D_CosThetaZ_vs_CosThetaPmiss: горизонтальные линии |cosθ_Z| < 0.98
-    drawHistogram2D(h2D_CosThetaZ_vs_CosThetaPmiss, "c2D_CosThetaZ_vs_CosThetaPmiss",
-                    "cos#theta_{miss}", "cos#theta_{Z}",
-                    makeOutputPath("2D_CosThetaZ_vs_CosThetaPmiss"),
+        // h2D_CosThetaZ_vs_CosThetaPmiss: горизонтальные линии |cosθ_Z| < 0.98
+        drawHistogram2D(h2D_CosThetaZ_vs_CosThetaPmiss, "c2D_CosThetaZ_vs_CosThetaPmiss",
+                        "cos#theta_{miss}", "cos#theta_{Z}",
+                        makeOutputPath("2D_CosThetaZ_vs_CosThetaPmiss"),
 #if APPLY_MAIN_COS_THETA_Z_CUT
-                    -1, COS_THETA_Z_CUT, "", "|cos#theta|^{cut}");
+                        -1, COS_THETA_Z_CUT, "", "|cos#theta|^{cut}");
 #else
-                    -1, -1, "", "");
+                        -1, -1, "", "");
 #endif
 
-    // Остальные гистограммы без линий отборов
-    drawHistogram1D(hPmissMag, "cPmissMag", "|P_{miss}| [GeV]", OUTPUT_PMISS_MAG, {}, kOrange, 2);
-    drawHistogram1D(hCosThetaPmiss, "cCosThetaPmiss", "cos#theta_{miss}", OUTPUT_COS_THETA_PMISS,
-                    {}, kMagenta, 2);
+        // Остальные гистограммы без линий отборов
+        drawHistogram1D(hPmissMag, "cPmissMag", "|P_{miss}| [GeV]", OUTPUT_PMISS_MAG, {}, kOrange,
+                        2);
+        drawHistogram1D(hCosThetaPmiss, "cCosThetaPmiss", "cos#theta_{miss}",
+                        OUTPUT_COS_THETA_PMISS, {}, kMagenta, 2);
 
-    // Очистка памяти
-    delete hInvMass;
-    delete hRecoilMass;
-    delete h2D_Correlation;
-    delete hCosThetaZ;
-    delete hDeltaR;
-    delete hCosThetaJet;
-    delete hMETpfo;
-    delete hMETjet;
-    delete hPmissMag;
-    delete hCosThetaPmiss;
-    delete h2D_Mrecoil_vs_MET;
-    delete h2D_Mrecoil_vs_Pmiss;
-    delete h2D_MET_vs_Pmiss;
-    delete h2D_Mjj_vs_MET;
-    delete h2D_Mjj_vs_Pmiss;
-    delete h2D_CosThetaZ_vs_CosThetaPmiss;
-    inputFile->Close();
-    delete inputFile;
+        // Очистка памяти
+        delete hInvMass;
+        delete hRecoilMass;
+        delete h2D_Correlation;
+        delete hCosThetaZ;
+        delete hDeltaR;
+        delete hCosThetaJet;
+        delete hMETpfo;
+        delete hMETjet;
+        delete hPmissMag;
+        delete hCosThetaPmiss;
+        delete h2D_Mrecoil_vs_MET;
+        delete h2D_Mrecoil_vs_Pmiss;
+        delete h2D_MET_vs_Pmiss;
+        delete h2D_Mjj_vs_MET;
+        delete h2D_Mjj_vs_Pmiss;
+        delete h2D_CosThetaZ_vs_CosThetaPmiss;
+        inputFile->Close();
+        delete inputFile;
 
-    std::cout << "\nГотово. Результаты сохранены в: " << fs::absolute(processOutputDir)
-              << std::endl;
+        std::cout << "\nГотово. Результаты сохранены в: " << fs::absolute(processOutputDir)
+                  << std::endl;
+    }
     return 0;
 }

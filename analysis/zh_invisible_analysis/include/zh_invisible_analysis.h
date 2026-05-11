@@ -129,7 +129,8 @@ const double COS_THETA_PMISS_MAX = 1.0;
 // НАСТРОЙКИ ВЫВОДА И ЛОГИРОВАНИЯ
 // =============================================================================
 
-const std::string OUTPUT_BASE_DIR = "../pdf_results";
+const std::string OUTPUT_PDF_BASE_DIR = "../pdf_results";
+const std::string OUTPUT_ML_BASE_DIR = "../ml";
 
 const int LOG_INTERVAL_EVENTS = 1000;
 const bool LOG_PERCENTAGE = true;
@@ -290,5 +291,22 @@ struct IsoElectronStats {
         std::cout << "──────────────────────────────────────────" << std::endl;
     }
 };
+
+// =============================================================================
+// СТРУКТУРА ФЕЙЧЕЙ ДЛЯ ML
+// =============================================================================
+struct MLFeatures {
+    double invMass = 0, recoilMass = 0, cosThetaZ = 0, deltaR = 0;
+    double ej1 = 0, ej2 = 0, eta_j1 = 0, eta_j2 = 0;
+    double pt_jj = 0, met_pfo = 0, pmag_miss = 0, costh_miss = 0;
+    double energy_asym = 0;
+    int nconst_j1 = 0, nconst_j2 = 0;
+    int label = 0;
+};
+
+// =============================================================================
+// РЕЖИМЫ РАБОТЫ
+// =============================================================================
+enum class AnalysisMode { NORMAL, TRAINING, INFERENCE };
 
 #endif // ZH_INVISIBLE_ANALYSIS_H

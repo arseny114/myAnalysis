@@ -1,2 +1,4 @@
 build/
 pdf_results/
+venv/
+ml_training/ 
