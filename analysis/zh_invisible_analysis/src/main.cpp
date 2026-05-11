@@ -309,24 +309,24 @@ void drawHistogram1D(TH1F *hist, const std::string &canvasTitle, const std::stri
     hist->SetLineWidth(lineWidth);
     hist->Draw("HIST");
 
-    double ymin = hist->GetMinimum();
-    double ymax = hist->GetMaximum();
-    if (gPad->GetLogy()) {
-        ymin = std::max(0.1, ymin * 0.1);
-        ymax *= 10;
-    }
+    // Вызываем Update() чтобы ROOT финализировал оси, затем берём
+    // реальные границы из gPad, т.к. они учитывают автомасштаб
+    c->Update();
+    double ymin = gPad->GetUymin();
+    double ymax = gPad->GetUymax();
+    double xmin = gPad->GetUxmin();
+    double xmax = gPad->GetUxmax();
+    double xRange = xmax - xmin;
 
     for (const auto &mark : markLines) {
-        if (mark.first <= 0.0)
-            continue; // Пропускаем невалидные пороги
         TLine *line = new TLine(mark.first, ymin, mark.first, ymax);
         line->SetLineColor(markColor);
         line->SetLineWidth(lineWidth);
         line->SetLineStyle(kDashed);
         line->Draw();
 
-        TLatex *label =
-            new TLatex(mark.first + (ymax - ymin) * 0.02, ymax * 0.9, mark.second.c_str());
+        // Смещение подписи в единицах оси X
+        TLatex *label = new TLatex(mark.first + xRange * 0.015, ymax * 0.88, mark.second.c_str());
         label->SetTextColor(markColor);
         label->SetTextSize(0.035);
         label->SetTextAlign(12);
@@ -338,7 +338,7 @@ void drawHistogram1D(TH1F *hist, const std::string &canvasTitle, const std::stri
     delete c;
 }
 
-// Отрисовка 2D гистограммы с опциональным эллипсом
+// Отрисовка 2D гистограммы с опциональными линиями и эллипсом
 void drawHistogram2D(TH2F *hist, const std::string &canvasTitle, const std::string &xTitle,
                      const std::string &yTitle, const std::string &outputFile, double markX = -1,
                      double markY = -1, const std::string &markLabelX = "",
@@ -365,16 +365,23 @@ void drawHistogram2D(TH2F *hist, const std::string &canvasTitle, const std::stri
 
     hist->Draw("COLZ");
 
+    // Берём границы из самой гистограммы (для 2D они фиксированы при создании)
+    double xmin = hist->GetXaxis()->GetXmin();
+    double xmax = hist->GetXaxis()->GetXmax();
+    double ymin = hist->GetYaxis()->GetXmin();
+    double ymax = hist->GetYaxis()->GetXmax();
+    double xRange = xmax - xmin;
+    double yRange = ymax - ymin;
+
     if (markX > 0) {
-        double ymin = hist->GetYaxis()->GetXmin();
-        double ymax = hist->GetYaxis()->GetXmax();
         TLine *lineX = new TLine(markX, ymin, markX, ymax);
         lineX->SetLineColor(kRed);
         lineX->SetLineWidth(2);
         lineX->SetLineStyle(kDashed);
         lineX->Draw();
 
-        TLatex *labelX = new TLatex(markX + 5, ymax * 0.95, markLabelX.c_str());
+        TLatex *labelX =
+            new TLatex(markX + xRange * 0.02, ymax - yRange * 0.06, markLabelX.c_str());
         labelX->SetTextColor(kRed);
         labelX->SetTextSize(0.03);
         labelX->SetTextAlign(12);
@@ -382,15 +389,14 @@ void drawHistogram2D(TH2F *hist, const std::string &canvasTitle, const std::stri
     }
 
     if (markY > 0) {
-        double xmin = hist->GetXaxis()->GetXmin();
-        double xmax = hist->GetXaxis()->GetXmax();
         TLine *lineY = new TLine(xmin, markY, xmax, markY);
         lineY->SetLineColor(kBlue);
         lineY->SetLineWidth(2);
         lineY->SetLineStyle(kDashed);
         lineY->Draw();
 
-        TLatex *labelY = new TLatex(xmax * 0.75, markY + 3, markLabelY.c_str());
+        TLatex *labelY =
+            new TLatex(xmax - xRange * 0.25, markY + yRange * 0.02, markLabelY.c_str());
         labelY->SetTextColor(kBlue);
         labelY->SetTextSize(0.03);
         labelY->SetTextAlign(12);
@@ -409,30 +415,25 @@ void drawHistogram2D(TH2F *hist, const std::string &canvasTitle, const std::stri
         std::vector<double> ex(nPts + 1), ey(nPts + 1);
         for (int i = 0; i <= nPts; ++i) {
             double phi = 2.0 * M_PI * i / nPts;
-            // Параметризация в собственной СК эллипса
             double xl = ellipseA * std::cos(phi);
             double yl = ellipseB * std::sin(phi);
-            // Поворот и перенос в лабораторную СК
             ex[i] = ellipseCx + xl * std::cos(ellipseTheta) - yl * std::sin(ellipseTheta);
             ey[i] = ellipseCy + xl * std::sin(ellipseTheta) + yl * std::cos(ellipseTheta);
         }
         TPolyLine *ellipse = new TPolyLine(nPts + 1, ex.data(), ey.data());
-        ellipse->SetLineColor(kGreen);
+        ellipse->SetLineColor(kGreen + 1);
         ellipse->SetLineWidth(3);
         ellipse->SetLineStyle(kDashed);
         ellipse->Draw("L SAME");
 
-        // Подпись
-        TLatex *ellipseLabel = new TLatex(ellipseCx + 8, ellipseCy - 12, "Ellipse cut");
-        ellipseLabel->SetTextColor(kGreen);
+        TLatex *ellipseLabel =
+            new TLatex(ellipseCx + xRange * 0.04, ellipseCy - yRange * 0.05, "Ellipse cut");
+        ellipseLabel->SetTextColor(kGreen + 1);
         ellipseLabel->SetTextSize(0.03);
         ellipseLabel->Draw();
 
-        // Создаём рамку с параметрами
         double textX = 0.48, textY = 0.7;
         double boxWidth = 0.25, boxHeight = 0.18;
-
-        // Фон под текстом
         auto *paramBox = new TPaveText(textX, textY, textX + boxWidth, textY + boxHeight, "NDC NB");
         paramBox->SetFillColor(kWhite);
         paramBox->SetFillStyle(1001);
@@ -440,14 +441,11 @@ void drawHistogram2D(TH2F *hist, const std::string &canvasTitle, const std::stri
         paramBox->SetLineWidth(1);
         paramBox->SetTextAlign(12);
         paramBox->SetTextSize(0.028);
-
-        // Формируем строки с параметрами
         double thetaDeg = ellipseTheta * 180.0 / M_PI;
         paramBox->AddText("Ellipse cut:");
         paramBox->AddText(Form("Center: (%.1f, %.1f) GeV", ellipseCx, ellipseCy));
         paramBox->AddText(Form("Semi-axes: a=%.2f, b=%.2f GeV", ellipseA, ellipseB));
         paramBox->AddText(Form("Rotation: %.1f#circ", thetaDeg));
-
         paramBox->Draw();
     }
 
@@ -889,24 +887,55 @@ int main(int argc, char *argv[]) {
 #endif
     drawHistogram1D(hMETjet, "cMETjet", "MET_{jet} [GeV]", OUTPUT_MET_JET, metMarks, kViolet, 2);
 
+    // h2D_Mrecoil_vs_MET: вертикальная линия MET > 20 GeV
+    drawHistogram2D(h2D_Mrecoil_vs_MET, "c2D_Mrecoil_vs_MET", "MET_{jet} [GeV]", "M_{recoil} [GeV]",
+                    makeOutputPath("2D_Mrecoil_vs_MET"),
+#if APPLY_MAIN_MET_CUT
+                    MET_CUT_MIN_GEV, -1, "MET_{min}", "");
+#else
+                    -1, -1, "", "");
+#endif
+
+    // h2D_Mrecoil_vs_Pmiss: без активных отборов по этим осям
+    drawHistogram2D(h2D_Mrecoil_vs_Pmiss, "c2D_Mrecoil_vs_Pmiss", "|P_{miss}| [GeV]",
+                    "M_{recoil} [GeV]", makeOutputPath("2D_Mrecoil_vs_Pmiss"));
+
+    // h2D_MET_vs_Pmiss: вертикальная линия MET > 20 GeV (ось Y здесь MET)
+    drawHistogram2D(h2D_MET_vs_Pmiss, "c2D_MET_vs_Pmiss", "|P_{miss}| [GeV]", "MET_{jet} [GeV]",
+                    makeOutputPath("2D_MET_vs_Pmiss"),
+#if APPLY_MAIN_MET_CUT
+                    -1, MET_CUT_MIN_GEV, "", "MET_{min}");
+#else
+                    -1, -1, "", "");
+#endif
+
+    // h2D_Mjj_vs_MET: вертикальная линия MET > 20 GeV
+    drawHistogram2D(h2D_Mjj_vs_MET, "c2D_Mjj_vs_MET", "MET_{jet} [GeV]", "M_{jj} [GeV]",
+                    makeOutputPath("2D_Mjj_vs_MET"),
+#if APPLY_MAIN_MET_CUT
+                    MET_CUT_MIN_GEV, -1, "MET_{min}", "");
+#else
+                    -1, -1, "", "");
+#endif
+
+    // h2D_Mjj_vs_Pmiss: без активных отборов по этим осям
+    drawHistogram2D(h2D_Mjj_vs_Pmiss, "c2D_Mjj_vs_Pmiss", "|P_{miss}| [GeV]", "M_{jj} [GeV]",
+                    makeOutputPath("2D_Mjj_vs_Pmiss"));
+
+    // h2D_CosThetaZ_vs_CosThetaPmiss: горизонтальные линии |cosθ_Z| < 0.98
+    drawHistogram2D(h2D_CosThetaZ_vs_CosThetaPmiss, "c2D_CosThetaZ_vs_CosThetaPmiss",
+                    "cos#theta_{miss}", "cos#theta_{Z}",
+                    makeOutputPath("2D_CosThetaZ_vs_CosThetaPmiss"),
+#if APPLY_MAIN_COS_THETA_Z_CUT
+                    -1, COS_THETA_Z_CUT, "", "|cos#theta|^{cut}");
+#else
+                    -1, -1, "", "");
+#endif
+
     // Остальные гистограммы без линий отборов
     drawHistogram1D(hPmissMag, "cPmissMag", "|P_{miss}| [GeV]", OUTPUT_PMISS_MAG, {}, kOrange, 2);
     drawHistogram1D(hCosThetaPmiss, "cCosThetaPmiss", "cos#theta_{miss}", OUTPUT_COS_THETA_PMISS,
                     {}, kMagenta, 2);
-
-    drawHistogram2D(h2D_Mrecoil_vs_MET, "c2D_Mrecoil_vs_MET", "MET_{jet} [GeV]", "M_{recoil} [GeV]",
-                    makeOutputPath("2D_Mrecoil_vs_MET"));
-    drawHistogram2D(h2D_Mrecoil_vs_Pmiss, "c2D_Mrecoil_vs_Pmiss", "|P_{miss}| [GeV]",
-                    "M_{recoil} [GeV]", makeOutputPath("2D_Mrecoil_vs_Pmiss"));
-    drawHistogram2D(h2D_MET_vs_Pmiss, "c2D_MET_vs_Pmiss", "|P_{miss}| [GeV]", "MET_{jet} [GeV]",
-                    makeOutputPath("2D_MET_vs_Pmiss"));
-    drawHistogram2D(h2D_Mjj_vs_MET, "c2D_Mjj_vs_MET", "MET_{jet} [GeV]", "M_{jj} [GeV]",
-                    makeOutputPath("2D_Mjj_vs_MET"));
-    drawHistogram2D(h2D_Mjj_vs_Pmiss, "c2D_Mjj_vs_Pmiss", "|P_{miss}| [GeV]", "M_{jj} [GeV]",
-                    makeOutputPath("2D_Mjj_vs_Pmiss"));
-    drawHistogram2D(h2D_CosThetaZ_vs_CosThetaPmiss, "c2D_CosThetaZ_vs_CosThetaPmiss",
-                    "cos#theta_{miss}", "cos#theta_{Z}",
-                    makeOutputPath("2D_CosThetaZ_vs_CosThetaPmiss"));
 
     // Очистка памяти
     delete hInvMass;
