@@ -59,16 +59,16 @@ const double MET_CUT_MIN_GEV = 20.0; // Мин. MET от двух джетов
 
 // --- 9. Кат на полярный угол системы двух джетов ---
 #define APPLY_MAIN_COS_THETA_Z_CUT true
-const double COS_THETA_Z_CUT = 0.98;
+const double COS_THETA_Z_CUT = 0.7;
 
 // --- 10. Эллиптический кат на плоскости M_jj vs M_recoil ---
 #define APPLY_MAIN_ELLIPSE_CUT true
 // Параметры эллипса: ((x-x₀)cosθ + (y-y₀)sinθ)²/a² + (-(x-x₀)sinθ + (y-y₀)cosθ)²/b² ≤ 1
-const double ELLIPSE_CX_GEV = 87.5;           // Центр по M_inv (ГэВ)
-const double ELLIPSE_CY_GEV = 130.0;          // Центр по M_recoil (ГэВ)
-const double ELLIPSE_A_GEV = 27.95;           // Большая полуось (ГэВ)
-const double ELLIPSE_B_GEV = 5.59;            // Малая полуось (ГэВ)
-const double ELLIPSE_THETA = std::atan(-2.0); // Угол поворота (радианы)
+const double ELLIPSE_CX_GEV = 85.0;  // Центр по M_inv (ГэВ)
+const double ELLIPSE_CY_GEV = 132.5; // Центр по M_recoil (ГэВ)
+const double ELLIPSE_A_GEV = 25.00;  // Большая полуось (ГэВ)
+const double ELLIPSE_B_GEV = 7.0;    // Малая полуось (ГэВ)
+const double ELLIPSE_THETA = -55.0;  // Угол поворота (градусы)
 
 // =============================================================================
 // ПАРАМЕТРЫ ФИЗИКИ И ГИСТОГРАММ

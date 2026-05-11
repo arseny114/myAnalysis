@@ -344,7 +344,7 @@ void drawHistogram2D(TH2F *hist, const std::string &canvasTitle, const std::stri
                      double markY = -1, const std::string &markLabelX = "",
                      const std::string &markLabelY = "", double ellipseCx = -1,
                      double ellipseCy = -1, double ellipseA = -1, double ellipseB = -1,
-                     double ellipseTheta = 0, bool drawEllipse = false) {
+                     double thetaDeg = 0, bool drawEllipse = false) {
     TCanvas *c = new TCanvas(canvasTitle.c_str(), canvasTitle.c_str(), 900, 800);
     c->SetLeftMargin(0.12);
     c->SetRightMargin(0.15);
@@ -417,6 +417,7 @@ void drawHistogram2D(TH2F *hist, const std::string &canvasTitle, const std::stri
             double phi = 2.0 * M_PI * i / nPts;
             double xl = ellipseA * std::cos(phi);
             double yl = ellipseB * std::sin(phi);
+            double ellipseTheta = (thetaDeg * M_PI) / 180.0;
             ex[i] = ellipseCx + xl * std::cos(ellipseTheta) - yl * std::sin(ellipseTheta);
             ey[i] = ellipseCy + xl * std::sin(ellipseTheta) + yl * std::cos(ellipseTheta);
         }
@@ -441,7 +442,6 @@ void drawHistogram2D(TH2F *hist, const std::string &canvasTitle, const std::stri
         paramBox->SetLineWidth(1);
         paramBox->SetTextAlign(12);
         paramBox->SetTextSize(0.028);
-        double thetaDeg = ellipseTheta * 180.0 / M_PI;
         paramBox->AddText("Ellipse cut:");
         paramBox->AddText(Form("Center: (%.1f, %.1f) GeV", ellipseCx, ellipseCy));
         paramBox->AddText(Form("Semi-axes: a=%.2f, b=%.2f GeV", ellipseA, ellipseB));
