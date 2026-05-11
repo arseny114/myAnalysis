@@ -94,15 +94,6 @@ const int RECOIL_BINS = 200;
 const double RECOIL_MIN_GEV = 0.0;
 const double RECOIL_MAX_GEV = 250.0;
 
-// Параметры для 2D гистограммы: E_photon vs M_recoil
-const int PHOTON_E_BINS = 100;
-const double PHOTON_E_MIN_GEV = PHOTON_ENERGY_CUT_GEV;
-const double PHOTON_E_MAX_GEV = SQRT_S_GEV;
-
-const int RECOIL_MASS_2D_BINS = 200;
-const double RECOIL_MASS_2D_MIN_GEV = 0.0;
-const double RECOIL_MASS_2D_MAX_GEV = 250.0;
-
 // Параметры для гистограмм угловых распределений
 const int COS_THETA_Z_BINS = 100;
 const double COS_THETA_Z_MIN = -1.0;
@@ -115,16 +106,6 @@ const double DELTA_R_MAX = 5.0;
 const int COS_THETA_JET_BINS = 100;
 const double COS_THETA_JET_MIN = -1.0;
 const double COS_THETA_JET_MAX = 1.0;
-
-// Параметры для гистограммы cos(theta) изолированных электронов
-const int COS_THETA_ELEC_BINS = 100;
-const double COS_THETA_ELEC_MIN = -1.0;
-const double COS_THETA_ELEC_MAX = 1.0;
-
-// Параметры для гистограмм энергии лептонов
-const int LEPTON_E_BINS = 100;
-const double LEPTON_E_MIN_GEV = 0.0;
-const double LEPTON_E_MAX_GEV = 120.0;
 
 // Параметры для гистограмм потерянной поперечной энергии
 const int MET_PFO_BINS = 100;

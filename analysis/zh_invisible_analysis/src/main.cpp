@@ -651,12 +651,6 @@ int main(int argc, char *argv[]) {
                              "#Delta#phi^{2}};Events",
                              DELTA_R_BINS, DELTA_R_MIN, DELTA_R_MAX);
 
-    TH2F *hPhotonE_vs_Recoil =
-        new TH2F("hPhotonE_vs_Recoil",
-                 "Photon Energy vs Recoil Mass (pre-veto);E_{#gamma} [GeV];M_{recoil} [GeV]",
-                 PHOTON_E_BINS, PHOTON_E_MIN_GEV, PHOTON_E_MAX_GEV, RECOIL_MASS_2D_BINS,
-                 RECOIL_MASS_2D_MIN_GEV, RECOIL_MASS_2D_MAX_GEV);
-
     TH1F *hCosThetaJet = new TH1F("hCosThetaJet", "cos#theta of Jets;cos#theta;Events",
                                   COS_THETA_JET_BINS, COS_THETA_JET_MIN, COS_THETA_JET_MAX);
 
@@ -664,18 +658,6 @@ int main(int argc, char *argv[]) {
                              MET_PFO_MIN, MET_PFO_MAX);
     TH1F *hMETjet = new TH1F("hMETjet", "MET from Two Jets;MET_{jet} [GeV];Events", MET_JET_BINS,
                              MET_JET_MIN, MET_JET_MAX);
-
-    TH1F *hCosThetaIsoElec =
-        new TH1F("hCosThetaIsoElec", "cos#theta of Isolated Electrons;cos#theta;Events",
-                 COS_THETA_ELEC_BINS, COS_THETA_ELEC_MIN, COS_THETA_ELEC_MAX);
-    TH1F *hLeptonEnergyAll =
-        new TH1F("hLeptonEnergyAll ", "Energy of All Leptons;E_{l} [GeV];Events ", LEPTON_E_BINS,
-                 LEPTON_E_MIN_GEV, LEPTON_E_MAX_GEV);
-
-    TH1F *hLeptonEnergyIso =
-        new TH1F("hLeptonEnergyIso ", "Energy of Isolated Leptons;E_{l}^{iso} [GeV];Events ",
-                 LEPTON_E_BINS, LEPTON_E_MIN_GEV, LEPTON_E_MAX_GEV);
-
     TH1F *hPmissMag =
         new TH1F("hPmissMag", "Magnitude of Missing 3-Momentum;|P_{miss}| [GeV];Events", PMISS_BINS,
                  PMISS_MIN_GEV, PMISS_MAX_GEV);
@@ -683,6 +665,27 @@ int main(int argc, char *argv[]) {
     TH1F *hCosThetaPmiss =
         new TH1F("hCosThetaPmiss", "cos#theta of Missing 3-Momentum;cos#theta_{miss};Events",
                  COS_THETA_PMISS_BINS, COS_THETA_PMISS_MIN, COS_THETA_PMISS_MAX);
+
+    TH2F *h2D_Mrecoil_vs_MET = new TH2F(
+        "h2D_Mrecoil_vs_MET", "M_{recoil} vs MET_{jet};MET_{jet} [GeV];M_{recoil} [GeV]",
+        MET_JET_BINS, MET_JET_MIN, MET_JET_MAX, RECOIL_BINS, RECOIL_MIN_GEV, RECOIL_MAX_GEV);
+    TH2F *h2D_Mrecoil_vs_Pmiss = new TH2F(
+        "h2D_Mrecoil_vs_Pmiss", "M_{recoil} vs |P_{miss}|;|P_{miss}| [GeV];M_{recoil} [GeV]",
+        PMISS_BINS, PMISS_MIN_GEV, PMISS_MAX_GEV, RECOIL_BINS, RECOIL_MIN_GEV, RECOIL_MAX_GEV);
+    TH2F *h2D_MET_vs_Pmiss =
+        new TH2F("h2D_MET_vs_Pmiss", "MET_{jet} vs |P_{miss}|;|P_{miss}| [GeV];MET_{jet} [GeV]",
+                 PMISS_BINS, PMISS_MIN_GEV, PMISS_MAX_GEV, MET_JET_BINS, MET_JET_MIN, MET_JET_MAX);
+    TH2F *h2D_Mjj_vs_MET =
+        new TH2F("h2D_Mjj_vs_MET", "M_{jj} vs MET_{jet};MET_{jet} [GeV];M_{jj} [GeV]", MET_JET_BINS,
+                 MET_JET_MIN, MET_JET_MAX, MASS_BINS, MASS_MIN_GEV, MASS_MAX_GEV);
+    TH2F *h2D_Mjj_vs_Pmiss =
+        new TH2F("h2D_Mjj_vs_Pmiss", "M_{jj} vs |P_{miss}|;|P_{miss}| [GeV];M_{jj} [GeV]",
+                 PMISS_BINS, PMISS_MIN_GEV, PMISS_MAX_GEV, MASS_BINS, MASS_MIN_GEV, MASS_MAX_GEV);
+    TH2F *h2D_CosThetaZ_vs_CosThetaPmiss =
+        new TH2F("h2D_CosThetaZ_vs_CosThetaPmiss",
+                 "cos#theta_{Z} vs cos#theta_{miss};cos#theta_{miss};cos#theta_{Z}",
+                 COS_THETA_PMISS_BINS, COS_THETA_PMISS_MIN, COS_THETA_PMISS_MAX, COS_THETA_Z_BINS,
+                 COS_THETA_Z_MIN, COS_THETA_Z_MAX);
 
     // Статистики
     CutStatistics stats;
@@ -698,41 +701,23 @@ int main(int argc, char *argv[]) {
         stats.totalEvents++;
 
         // Сбор статистики по лептонам (до всех катов)
-        // Заполняет:
-        // - hCosThetaIsoElec: cos(theta) только для изолированных электронов
-        // - hLeptonEnergyAll: энергия всех лептонов (e/μ)
-        // - hLeptonEnergyIso: энергия только изолированных лептонов (e/μ)
         if (particleType && pfoE && pfoPx && pfoPy && pfoPz) {
             for (size_t k = 0; k < particleType->size(); ++k) {
-                int pdg = std::abs(particleType->at(k));
 
-                // Отбираем электроны и мюоны
-                if (pdg == PDG_ELECTRON || pdg == PDG_MUON) {
-                    double energy = pfoE->at(k);
-                    double px = pfoPx->at(k);
-                    double py = pfoPy->at(k);
-                    double pz = pfoPz->at(k);
-
-                    // 1. Заполняем гистограмму энергии всех лептонов
-                    hLeptonEnergyAll->Fill(energy);
-
-                    // 2. Проверяем изоляцию
+                // Отбираем электроны
+                if (std::abs(particleType->at(k)) == PDG_ELECTRON) {
                     if (isLeptonIsolatedROOT_FSR(k, particleType, pfoE, pfoPx, pfoPy, pfoPz)) {
-                        // 2a. Заполняем гистограмму энергии изолированных лептонов
-                        hLeptonEnergyIso->Fill(energy);
+                        double px = pfoPx->at(k);
+                        double py = pfoPy->at(k);
+                        double pz = pfoPz->at(k);
+                        double p = std::sqrt(px * px + py * py + pz * pz);
+                        double cosTheta = (p > 1e-9) ? pz / p : 0.0;
 
-                        // 2b. Для электронов дополнительно считаем cos(theta) и геометрию
-                        if (pdg == PDG_ELECTRON) {
-                            double p = std::sqrt(px * px + py * py + pz * pz);
-                            double cosTheta = (p > 1e-9) ? pz / p : 0.0;
-
-                            hCosThetaIsoElec->Fill(cosTheta);
-                            elecStats.total++;
-                            if (std::abs(cosTheta) < 0.7)
-                                elecStats.barrel++;
-                            else
-                                elecStats.endcap++;
-                        }
+                        elecStats.total++;
+                        if (std::abs(cosTheta) < 0.7)
+                            elecStats.barrel++;
+                        else
+                            elecStats.endcap++;
                     }
                 }
             }
@@ -810,14 +795,12 @@ int main(int argc, char *argv[]) {
         hPmissMag->Fill(pmiss_mag);
         hCosThetaPmiss->Fill(cosThetaPmiss);
 
-        if (particleType && pfoE && particleType->size() == pfoE->size()) {
-            for (size_t ip = 0; ip < particleType->size(); ++ip) {
-                if (std::abs(particleType->at(ip)) == PDG_PHOTON &&
-                    pfoE->at(ip) > PHOTON_ENERGY_CUT_GEV) {
-                    hPhotonE_vs_Recoil->Fill(pfoE->at(ip), recoilMass);
-                }
-            }
-        }
+        h2D_Mrecoil_vs_MET->Fill(met_jet, recoilMass);
+        h2D_Mrecoil_vs_Pmiss->Fill(pmiss_mag, recoilMass);
+        h2D_MET_vs_Pmiss->Fill(pmiss_mag, met_jet);
+        h2D_Mjj_vs_MET->Fill(met_jet, invMass);
+        h2D_Mjj_vs_Pmiss->Fill(pmiss_mag, invMass);
+        h2D_CosThetaZ_vs_CosThetaPmiss->Fill(cosThetaPmiss, cosThetaZ);
 
         // ==================== ОСНОВНЫЕ ОТБОРЫ ====================
         if (APPLY_MAIN_MET_CUT && met_jet < MET_CUT_MIN_GEV)
@@ -896,9 +879,6 @@ int main(int argc, char *argv[]) {
 
     drawHistogram1D(hDeltaR, "cDeltaR", "#Delta R", OUTPUT_DELTA_R, {}, kMagenta, 2);
 
-    drawHistogram2D(hPhotonE_vs_Recoil, "cPhotonE_vs_Recoil", "E_{#gamma} [GeV] (pre-veto)",
-                    "M_{recoil} [GeV]", OUTPUT_PHOTON_E_VS_RECOIL, -1, -1, "", "");
-
     drawHistogram1D(hCosThetaJet, "cCosThetaJet", "cos#theta", OUTPUT_COS_THETA_JET, {}, kCyan, 2);
 
     drawHistogram1D(hMETpfo, "cMETpfo", "MET_{PFO} [GeV]", OUTPUT_MET_PFO, {}, kOrange + 1, 2);
@@ -910,30 +890,41 @@ int main(int argc, char *argv[]) {
     drawHistogram1D(hMETjet, "cMETjet", "MET_{jet} [GeV]", OUTPUT_MET_JET, metMarks, kViolet, 2);
 
     // Остальные гистограммы без линий отборов
-    drawHistogram1D(hCosThetaIsoElec, "cCosThetaIsoElec", "cos#theta",
-                    makeOutputPath("cosTheta_iso_elec"), {}, kRed, 2);
-    drawHistogram1D(hLeptonEnergyAll, "cLeptonEnergyAll", "E_{l} [GeV]",
-                    makeOutputPath("lepton_energy_all"), {}, kBlue, 2);
-    drawHistogram1D(hLeptonEnergyIso, "cLeptonEnergyIso", "E_{l}^{iso} [GeV]",
-                    makeOutputPath("lepton_energy_iso"), {}, kRed, 2);
     drawHistogram1D(hPmissMag, "cPmissMag", "|P_{miss}| [GeV]", OUTPUT_PMISS_MAG, {}, kOrange, 2);
     drawHistogram1D(hCosThetaPmiss, "cCosThetaPmiss", "cos#theta_{miss}", OUTPUT_COS_THETA_PMISS,
                     {}, kMagenta, 2);
+
+    drawHistogram2D(h2D_Mrecoil_vs_MET, "c2D_Mrecoil_vs_MET", "MET_{jet} [GeV]", "M_{recoil} [GeV]",
+                    makeOutputPath("2D_Mrecoil_vs_MET"));
+    drawHistogram2D(h2D_Mrecoil_vs_Pmiss, "c2D_Mrecoil_vs_Pmiss", "|P_{miss}| [GeV]",
+                    "M_{recoil} [GeV]", makeOutputPath("2D_Mrecoil_vs_Pmiss"));
+    drawHistogram2D(h2D_MET_vs_Pmiss, "c2D_MET_vs_Pmiss", "|P_{miss}| [GeV]", "MET_{jet} [GeV]",
+                    makeOutputPath("2D_MET_vs_Pmiss"));
+    drawHistogram2D(h2D_Mjj_vs_MET, "c2D_Mjj_vs_MET", "MET_{jet} [GeV]", "M_{jj} [GeV]",
+                    makeOutputPath("2D_Mjj_vs_MET"));
+    drawHistogram2D(h2D_Mjj_vs_Pmiss, "c2D_Mjj_vs_Pmiss", "|P_{miss}| [GeV]", "M_{jj} [GeV]",
+                    makeOutputPath("2D_Mjj_vs_Pmiss"));
+    drawHistogram2D(h2D_CosThetaZ_vs_CosThetaPmiss, "c2D_CosThetaZ_vs_CosThetaPmiss",
+                    "cos#theta_{miss}", "cos#theta_{Z}",
+                    makeOutputPath("2D_CosThetaZ_vs_CosThetaPmiss"));
+
     // Очистка памяти
     delete hInvMass;
     delete hRecoilMass;
     delete h2D_Correlation;
     delete hCosThetaZ;
     delete hDeltaR;
-    delete hPhotonE_vs_Recoil;
     delete hCosThetaJet;
     delete hMETpfo;
     delete hMETjet;
-    delete hCosThetaIsoElec;
-    delete hLeptonEnergyAll;
-    delete hLeptonEnergyIso;
     delete hPmissMag;
     delete hCosThetaPmiss;
+    delete h2D_Mrecoil_vs_MET;
+    delete h2D_Mrecoil_vs_Pmiss;
+    delete h2D_MET_vs_Pmiss;
+    delete h2D_Mjj_vs_MET;
+    delete h2D_Mjj_vs_Pmiss;
+    delete h2D_CosThetaZ_vs_CosThetaPmiss;
     inputFile->Close();
     delete inputFile;
 
