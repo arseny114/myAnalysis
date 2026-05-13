@@ -45,23 +45,29 @@ const double PHOTON_ISO_COS_CONE_ANGLE = 0.985;    // cosConeAngle для фот
 
 // --- 6. Кат на MET (Missing Transverse Energy) ---
 #define APPLY_MAIN_MET_CUT true
-const double MET_CUT_MIN_GEV = 20.0; // Мин. MET от двух джетов
+const double MET_CUT_MIN_GEV = 20.0;
+const double MET_CUT_MAX_GEV = 60.0;
 
-// --- 7. Окно инвариантной массы диджета (ГэВ) ---
+// --- 7. Кат на Pmiss ---
+#define APPLY_MAIN_PMISS_CUT false
+const double PMISS_CUT_MIN_GEV = 30.0;
+const double PMISS_CUT_MAX_GEV = 70.0;
+
+// --- 8. Окно инвариантной массы диджета (ГэВ) ---
 #define APPLY_MAIN_DIJET_MASS_WINDOW false
 #define DIJET_MASS_WINDOW_MIN_GEV 75.0
 #define DIJET_MASS_WINDOW_MAX_GEV 105.0
 
-// --- 8. Окно массы отдачи (ГэВ) ---
+// --- 9. Окно массы отдачи (ГэВ) ---
 #define APPLY_MAIN_RECOIL_MASS_WINDOW false
 #define RECOIL_MASS_WINDOW_MIN_GEV 105.0
 #define RECOIL_MASS_WINDOW_MAX_GEV 145.0
 
-// --- 9. Кат на полярный угол системы двух джетов ---
+// --- 10. Кат на полярный угол системы двух джетов ---
 #define APPLY_MAIN_COS_THETA_Z_CUT true
 const double COS_THETA_Z_CUT = 0.7;
 
-// --- 10. Эллиптический кат на плоскости M_jj vs M_recoil ---
+// --- 11. Эллиптический кат на плоскости M_jj vs M_recoil ---
 #define APPLY_MAIN_ELLIPSE_CUT true
 // Параметры эллипса: ((x-x₀)cosθ + (y-y₀)sinθ)²/a² + (-(x-x₀)sinθ + (y-y₀)cosθ)²/b² ≤ 1
 const double ELLIPSE_CX_GEV = 85.0;  // Центр по M_inv (ГэВ)
@@ -169,6 +175,7 @@ struct CutStatistics {
 
     // Основные отборы
     Long64_t afterMetCut = 0;
+    Long64_t afterPmissCut = 0;
     Long64_t afterDijetMassWindow = 0;
     Long64_t afterCosThetaZCut = 0;
     Long64_t afterRecoilMassWindow = 0;
@@ -234,27 +241,32 @@ struct CutStatistics {
         std::cout << "ОСНОВНЫЕ ОТБОРЫ:\n" << sepNarrow << "\n";
 
         if (APPLY_MAIN_MET_CUT) {
-            printRow("  6. MET cut (MET_jet > 20 GeV):", afterMetCut, current);
+            printRow("  6. MET cut:", afterMetCut, current);
             current = afterMetCut;
         }
 
+        if (APPLY_MAIN_PMISS_CUT) {
+            printRow("  6. PMISS cut:", afterPmissCut, current);
+            current = afterPmissCut;
+        }
+
         if (APPLY_MAIN_DIJET_MASS_WINDOW) {
-            printRow("  7. Окно массы диджета:", afterDijetMassWindow, current);
+            printRow("  8. Окно массы диджета:", afterDijetMassWindow, current);
             current = afterDijetMassWindow;
         }
 
         if (APPLY_MAIN_COS_THETA_Z_CUT) {
-            printRow("  8. |cos#theta_{Z}| < 0.98:", afterCosThetaZCut, current);
+            printRow("  9. |cos#theta_{Z}| < 0.98:", afterCosThetaZCut, current);
             current = afterCosThetaZCut;
         }
 
         if (APPLY_MAIN_RECOIL_MASS_WINDOW) {
-            printRow("  9. Окно массы отдачи:", afterRecoilMassWindow, current);
+            printRow("  10. Окно массы отдачи:", afterRecoilMassWindow, current);
             current = afterRecoilMassWindow;
         }
 
         if (APPLY_MAIN_ELLIPSE_CUT) {
-            printRow("  10. Эллиптический cut (Mjj vs Mrecoil):", afterEllipseCut, current);
+            printRow("  11. Эллиптический cut (Mjj vs Mrecoil):", afterEllipseCut, current);
             current = afterEllipseCut;
         }
 

@@ -801,9 +801,14 @@ int main(int argc, char *argv[]) {
         h2D_CosThetaZ_vs_CosThetaPmiss->Fill(cosThetaPmiss, cosThetaZ);
 
         // ==================== ОСНОВНЫЕ ОТБОРЫ ====================
-        if (APPLY_MAIN_MET_CUT && met_jet < MET_CUT_MIN_GEV)
+        if (APPLY_MAIN_MET_CUT && (met_jet < MET_CUT_MIN_GEV || met_jet > MET_CUT_MAX_GEV))
             continue;
         stats.afterMetCut++;
+
+        if (APPLY_MAIN_PMISS_CUT &&
+            (pmiss_mag < PMISS_CUT_MIN_GEV || pmiss_mag > PMISS_CUT_MAX_GEV))
+            continue;
+        stats.afterPmissCut++;
 
         if (APPLY_MAIN_DIJET_MASS_WINDOW &&
             (invMass < DIJET_MASS_WINDOW_MIN_GEV || invMass > DIJET_MASS_WINDOW_MAX_GEV))
