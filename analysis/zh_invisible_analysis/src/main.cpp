@@ -20,7 +20,9 @@
 #include <TFile.h>
 #include <TH1F.h>
 #include <TH2F.h>
+#include <THStack.h>
 #include <TLatex.h>
+#include <TLegend.h>
 #include <TLine.h>
 #include <TLorentzVector.h>
 #include <TPad.h>
@@ -454,6 +456,57 @@ void drawHistogram2D(TH2F *hist, const std::string &canvasTitle, const std::stri
     delete c;
 }
 
+// Отрисовка стек гистограммы
+void drawRecoilStack(const std::map<std::string, std::pair<TH1F *, ProcessInfo>> &processes,
+                     const std::vector<std::string> &order, const std::string &outputFile) {
+
+    TCanvas *c = new TCanvas("cRecoilStack", "Recoil Mass Stack", 1000, 700);
+    c->SetLogy(true);
+    c->SetLeftMargin(0.13);
+    c->SetRightMargin(0.05);
+    c->SetBottomMargin(0.12);
+
+    THStack *stack =
+        new THStack("recoilStack", "Recoil Mass Distribution;M_{recoil} [GeV];Expected events");
+    TLegend *leg = new TLegend(0.75, 0.65, 0.95, 0.88);
+    leg->SetFillColor(0);
+    leg->SetBorderSize(1);
+
+    // Добавляем в стек строго в заданном порядке, но только те процессы, которые реально есть во
+    // входных данных
+    for (const auto &procName : order) {
+        auto it = processes.find(procName);
+        if (it != processes.end()) {
+            TH1F *hist = it->second.first;
+            const ProcessInfo &info = it->second.second;
+
+            // Применяем стиль
+            hist->SetFillColor(info.color);
+            hist->SetFillStyle(info.fillStyle);
+            hist->SetMarkerStyle(21);
+            hist->SetMarkerColor(info.color);
+            hist->SetLineWidth(1);
+
+            stack->Add(hist);
+            leg->AddEntry(hist, info.legendName.c_str(), "f");
+        }
+    }
+
+    stack->Draw("HIST");
+    stack->GetXaxis()->SetTitle("M_{recoil} [GeV]");
+    stack->GetYaxis()->SetTitle("Expected events after selection");
+    stack->GetXaxis()->SetRangeUser(RECOIL_STACK_MIN_GEV, RECOIL_STACK_MAX_GEV);
+
+    leg->Draw();
+    c->SaveAs(outputFile.c_str());
+    std::cout << "Сохранено: " << outputFile << std::endl;
+
+    // Очистка
+    delete leg;
+    delete stack;
+    delete c;
+}
+
 // Извлечение имени процесса из пути к файлу
 // Формат файла: merged_E240_qqHX.root
 std::string extractProcessName(const std::string &filepath) {
@@ -478,20 +531,16 @@ std::string extractProcessName(const std::string &filepath) {
 
 // Вывод справки по использованию
 void printUsage(const char *progName) {
-    std::cout << "Анализ для выделения ZH -> qq + invisible\n\n"
+    std::cout << "Многофайловый анализ ee -> ZH -> qq + invisible\n\n"
               << "Использование:\n"
-              << "  " << progName << " <input_root_file> [options]\n\n"
-              << "Обязательные аргументы:\n"
-              << "  input_root_file    Путь к входному ROOT-файлу с деревом анализа\n\n"
+              << "  " << progName << " file1.root file2.root ... [options]\n\n"
               << "Опции:\n"
-              << "  -h, --help         Показать эту справку\n"
-              << "  -o, --output-dir   Базовая директория для результатов "
-                 "(по умолчанию: ../pdf_results)\n"
-              << "  -e, --energy-cut   Порог энергии фотона для veto (ГэВ, по умолчанию: 30)\n"
-              << "  -c, --min-const    Мин. число конституентов в джете (по умолчанию: 6)\n"
-              << "\nПримеры:\n"
-              << "  " << progName << " merged_E240_qqHX.root\n"
-              << "  " << progName << " /path/to/file.root -o ./plots -e 50 -c 8\n";
+              << "  -h, --help              Показать эту справку\n"
+              << "  -o, --output-dir DIR    Базовая директория результатов (по умолчанию: "
+                 "../pdf_results)\n"
+              << "\nПример:\n"
+              << "  " << progName
+              << " merged_E240_qqHX.root merged_E240_qq.root merged_E240_qqHinvi.root\n";
 }
 
 // =============================================================================
@@ -505,10 +554,8 @@ int main(int argc, char *argv[]) {
         return 1;
     }
 
-    std::string inputRootFile;
+    std::vector<std::string> inputFiles;
     std::string outputBaseDir = OUTPUT_BASE_DIR;
-    double photonEnergyCut = PHOTON_ENERGY_CUT_GEV;
-    int minConstituents = MIN_CONSTITUENTS_PER_JET;
 
     for (int i = 1; i < argc; ++i) {
         std::string arg = argv[i];
@@ -516,26 +563,10 @@ int main(int argc, char *argv[]) {
             printUsage(argv[0]);
             return 0;
         } else if (arg == "-o" || arg == "--output-dir") {
-            if (i + 1 >= argc) {
-                std::cerr << "Ошибка: после -o/--output-dir требуется указать путь" << std::endl;
-                return 1;
-            }
-            outputBaseDir = argv[++i];
-        } else if (arg == "-e" || arg == "--energy-cut") {
-            if (i + 1 >= argc) {
-                std::cerr << "Ошибка: после -e/--energy-cut требуется указать значение"
-                          << std::endl;
-                return 1;
-            }
-            photonEnergyCut = std::stod(argv[++i]);
-        } else if (arg == "-c" || arg == "--min-const") {
-            if (i + 1 >= argc) {
-                std::cerr << "Ошибка: после -c/--min-const требуется указать значение" << std::endl;
-                return 1;
-            }
-            minConstituents = std::stoi(argv[++i]);
+            if (i + 1 < argc)
+                outputBaseDir = argv[++i];
         } else if (arg[0] != '-') {
-            inputRootFile = arg;
+            inputFiles.push_back(arg);
         } else {
             std::cerr << "Неизвестный аргумент: " << arg << std::endl;
             printUsage(argv[0]);
@@ -543,457 +574,514 @@ int main(int argc, char *argv[]) {
         }
     }
 
-    if (inputRootFile.empty()) {
-        std::cerr << "Ошибка: не указан входной файл" << std::endl;
+    if (inputFiles.empty()) {
+        std::cerr << "Ошибка: не указано ни одного ROOT-файла\n";
         printUsage(argv[0]);
         return 1;
     }
 
-    // Извлечение имени процесса и подготовка путей
-    std::string processName = extractProcessName(inputRootFile);
-    std::cout << "Процесс: " << processName << std::endl;
-    std::cout << "Входной файл: " << inputRootFile << std::endl;
+    // Контейнер для отдельных гистограмм каждого процесса + их метаданные
+    std::map<std::string, std::pair<TH1F *, ProcessInfo>> processRecoilHists;
 
-    fs::path processOutputDir = fs::path(outputBaseDir) / processName;
-    try {
-        fs::create_directories(processOutputDir);
-        std::cout << "Директория результатов: " << fs::absolute(processOutputDir) << std::endl;
-    } catch (const fs::filesystem_error &e) {
-        std::cerr << "Ошибка при создании директории: " << e.what() << std::endl;
-        return 1;
-    }
+    // Цикл по входным файлам
+    auto processDB = getProcessDatabase();
+    for (const auto &inputRootFile : inputFiles) {
 
-    // Формирование имён выходных файлов
-    auto makeOutputPath = [&](const std::string &basename) -> std::string {
-        return (processOutputDir / (basename + "_" + processName + ".pdf")).string();
-    };
+        // Ищем такой процесс в базе процессов
+        auto it = processDB.find(fs::path(inputRootFile).filename().string());
+        ProcessInfo proc;
+        if (it != processDB.end()) {
+            proc = it->second;
+        } else {
+            std::cout << "Предупреждение: файл " << inputRootFile
+                      << " не найден в базе. Используется weight = 1.0" << std::endl;
+            proc.legendName = extractProcessName(inputRootFile);
+            proc.weight = 1.0;
+            proc.color = kGray;
+        }
 
-    const std::string OUTPUT_INV_MASS = makeOutputPath("inv_mass_2jets");
-    const std::string OUTPUT_RECOIL_MASS = makeOutputPath("recoil_mass_2jets");
-    const std::string OUTPUT_2D_CORR = makeOutputPath("inv_vs_recoil_2d");
-    const std::string OUTPUT_COS_THETA_Z = makeOutputPath("cos_theta_Z_polar_angle");
-    const std::string OUTPUT_DELTA_R = makeOutputPath("deltaR_jet1_jet2");
-    const std::string OUTPUT_PHOTON_E_VS_RECOIL = makeOutputPath("photonE_vs_recoil_2d");
-    const std::string OUTPUT_COS_THETA_JET = makeOutputPath("cosTheta_jets");
-    const std::string OUTPUT_MET_PFO = makeOutputPath("MET_pfo");
-    const std::string OUTPUT_MET_JET = makeOutputPath("MET_jets");
-    const std::string OUTPUT_PMISS_MAG = makeOutputPath("Pmiss_magnitude");
-    const std::string OUTPUT_COS_THETA_PMISS = makeOutputPath("cosTheta_Pmiss");
+        // Извлечение имени процесса и подготовка путей
+        std::string processName = extractProcessName(inputRootFile);
+        if (inputRootFile.empty()) {
+            std::cerr << "Ошибка: не указан входной файл" << std::endl;
+            printUsage(argv[0]);
+            return 1;
+        }
+        std::cout << "Процесс: " << processName << std::endl;
+        std::cout << "Входной файл: " << inputRootFile << std::endl;
 
-    // Инициализация ROOT
-    gStyle->SetOptStat(1111);
-    gStyle->SetPadGridX(true);
-    gStyle->SetPadGridY(false);
-    auto startTime = std::chrono::high_resolution_clock::now();
+        fs::path processOutputDir = fs::path(OUTPUT_BASE_DIR) / processName;
+        try {
+            fs::create_directories(processOutputDir);
+            std::cout << "Директория результатов: " << fs::absolute(processOutputDir) << std::endl;
+        } catch (const fs::filesystem_error &e) {
+            std::cerr << "Ошибка при создании директории: " << e.what() << std::endl;
+            return 1;
+        }
 
-    // Открытие входного файла
-    std::cout << "\nОткрытие файла: " << inputRootFile << std::endl;
-    TFile *inputFile = TFile::Open(inputRootFile.c_str(), "READ");
-    if (!inputFile || inputFile->IsZombie()) {
-        std::cerr << "Ошибка: не удалось открыть файл " << inputRootFile << std::endl;
-        return 1;
-    }
+        // Формирование имён выходных файлов
+        auto makeOutputPath = [&](const std::string &basename) -> std::string {
+            return (processOutputDir / (basename + "_" + processName + ".pdf")).string();
+        };
 
-    TTree *tree = dynamic_cast<TTree *>(inputFile->Get(TREE_NAME.c_str()));
-    if (!tree) {
-        std::cerr << "Ошибка: дерево " << TREE_NAME << " не найдено" << std::endl;
-        inputFile->Close();
-        return 1;
-    }
-    std::cout << "Дерево найдено. Всего событий: " << tree->GetEntries() << std::endl;
+        const std::string OUTPUT_INV_MASS = makeOutputPath("inv_mass_2jets");
+        const std::string OUTPUT_RECOIL_MASS = makeOutputPath("recoil_mass_2jets");
+        const std::string OUTPUT_2D_CORR = makeOutputPath("inv_vs_recoil_2d");
+        const std::string OUTPUT_COS_THETA_Z = makeOutputPath("cos_theta_Z_polar_angle");
+        const std::string OUTPUT_DELTA_R = makeOutputPath("deltaR_jet1_jet2");
+        const std::string OUTPUT_PHOTON_E_VS_RECOIL = makeOutputPath("photonE_vs_recoil_2d");
+        const std::string OUTPUT_COS_THETA_JET = makeOutputPath("cosTheta_jets");
+        const std::string OUTPUT_MET_PFO = makeOutputPath("MET_pfo");
+        const std::string OUTPUT_MET_JET = makeOutputPath("MET_jets");
+        const std::string OUTPUT_PMISS_MAG = makeOutputPath("Pmiss_magnitude");
+        const std::string OUTPUT_COS_THETA_PMISS = makeOutputPath("cosTheta_Pmiss");
 
-    // Установка ветвей для inclusive джетов
-    std::vector<double> *inclJetE = nullptr, *inclJetPx = nullptr;
-    std::vector<double> *inclJetPy = nullptr, *inclJetPz = nullptr;
-    std::vector<double> *inclJetSize = nullptr;
+        // Инициализация ROOT
+        gStyle->SetOptStat(1111);
+        gStyle->SetPadGridX(true);
+        gStyle->SetPadGridY(false);
+        auto startTime = std::chrono::high_resolution_clock::now();
 
-    tree->SetBranchAddress("inclusiveJetE", &inclJetE);
-    tree->SetBranchAddress("inclusiveJetPx", &inclJetPx);
-    tree->SetBranchAddress("inclusiveJetPy", &inclJetPy);
-    tree->SetBranchAddress("inclusiveJetPz", &inclJetPz);
-    tree->SetBranchAddress("inclusiveJetSize", &inclJetSize);
+        // Открытие входного файла
+        std::cout << "\nОткрытие файла: " << inputRootFile << std::endl;
+        TFile *inputFile = TFile::Open(inputRootFile.c_str(), "READ");
+        if (!inputFile || inputFile->IsZombie()) {
+            std::cerr << "Ошибка: не удалось открыть файл " << inputRootFile << std::endl;
+            return 1;
+        }
 
-    // Ветви для lepton veto и photon veto
-    std::vector<int> *particleType = nullptr;
-    std::vector<double> *pfoE = nullptr;
-    std::vector<double> *pfoPx = nullptr;
-    std::vector<double> *pfoPy = nullptr;
-    std::vector<double> *pfoPz = nullptr;
+        TTree *tree = dynamic_cast<TTree *>(inputFile->Get(TREE_NAME.c_str()));
+        if (!tree) {
+            std::cerr << "Ошибка: дерево " << TREE_NAME << " не найдено" << std::endl;
+            inputFile->Close();
+            return 1;
+        }
+        std::cout << "Дерево найдено. Всего событий: " << tree->GetEntries() << std::endl;
 
-    if (APPLY_PRE_LEPTON_VETO || APPLY_PRE_HIGH_E_PHOTON_VETO || APPLY_PRE_ISOLATED_PHOTON_VETO) {
-        tree->SetBranchAddress("particleType", &particleType);
-        tree->SetBranchAddress("pfoE", &pfoE);
-        tree->SetBranchAddress("pfoPx", &pfoPx);
-        tree->SetBranchAddress("pfoPy", &pfoPy);
-        tree->SetBranchAddress("pfoPz", &pfoPz);
-    }
+        // Установка ветвей для inclusive джетов
+        std::vector<double> *inclJetE = nullptr, *inclJetPx = nullptr;
+        std::vector<double> *inclJetPy = nullptr, *inclJetPz = nullptr;
+        std::vector<double> *inclJetSize = nullptr;
 
-    // Создание гистограмм
-    TH1F *hInvMass = new TH1F("hInvMass", "Invariant Mass of Two Jets;M_{jj} [GeV];Events",
-                              MASS_BINS, MASS_MIN_GEV, MASS_MAX_GEV);
+        tree->SetBranchAddress("inclusiveJetE", &inclJetE);
+        tree->SetBranchAddress("inclusiveJetPx", &inclJetPx);
+        tree->SetBranchAddress("inclusiveJetPy", &inclJetPy);
+        tree->SetBranchAddress("inclusiveJetPz", &inclJetPz);
+        tree->SetBranchAddress("inclusiveJetSize", &inclJetSize);
 
-    TH1F *hRecoilMass =
-        new TH1F("hRecoilMass", "Recoil Mass Against Two Jets;M_{recoil} [GeV];Events", RECOIL_BINS,
-                 RECOIL_MIN_GEV, RECOIL_MAX_GEV);
+        // Ветви для lepton veto и photon veto
+        std::vector<int> *particleType = nullptr;
+        std::vector<double> *pfoE = nullptr;
+        std::vector<double> *pfoPx = nullptr;
+        std::vector<double> *pfoPy = nullptr;
+        std::vector<double> *pfoPz = nullptr;
 
-    TH2F *h2D_Correlation = new TH2F(
-        "h2D_Correlation", "Invariant Mass vs Recoil Mass;M_{jj} [GeV];M_{recoil} [GeV]", MASS_BINS,
-        MASS_MIN_GEV, MASS_MAX_GEV, RECOIL_BINS, RECOIL_MIN_GEV, RECOIL_MAX_GEV);
+        if (APPLY_PRE_LEPTON_VETO || APPLY_PRE_HIGH_E_PHOTON_VETO ||
+            APPLY_PRE_ISOLATED_PHOTON_VETO) {
+            tree->SetBranchAddress("particleType", &particleType);
+            tree->SetBranchAddress("pfoE", &pfoE);
+            tree->SetBranchAddress("pfoPx", &pfoPx);
+            tree->SetBranchAddress("pfoPy", &pfoPy);
+            tree->SetBranchAddress("pfoPz", &pfoPz);
+        }
 
-    TH1F *hCosThetaZ =
-        new TH1F("hCosThetaZ ", "cos#theta of Z Boson (Two-Jet System);cos#theta_{Z};Events ",
-                 COS_THETA_Z_BINS, COS_THETA_Z_MIN, COS_THETA_Z_MAX);
+        // Создание гистограмм
+        TH1F *hInvMass = new TH1F("hInvMass", "Invariant Mass of Two Jets;M_{jj} [GeV];Events",
+                                  MASS_BINS, MASS_MIN_GEV, MASS_MAX_GEV);
 
-    TH1F *hDeltaR = new TH1F("hDeltaR",
-                             "Distance #Delta R Between Two Jets;#Delta R = #sqrt{#Delta#eta^{2} + "
-                             "#Delta#phi^{2}};Events",
-                             DELTA_R_BINS, DELTA_R_MIN, DELTA_R_MAX);
+        TH1F *hRecoilMass =
+            new TH1F("hRecoilMass", "Recoil Mass Against Two Jets;M_{recoil} [GeV];Events",
+                     RECOIL_BINS, RECOIL_MIN_GEV, RECOIL_MAX_GEV);
 
-    TH1F *hCosThetaJet = new TH1F("hCosThetaJet", "cos#theta of Jets;cos#theta;Events",
-                                  COS_THETA_JET_BINS, COS_THETA_JET_MIN, COS_THETA_JET_MAX);
+        TH2F *h2D_Correlation = new TH2F(
+            "h2D_Correlation", "Invariant Mass vs Recoil Mass;M_{jj} [GeV];M_{recoil} [GeV]",
+            MASS_BINS, MASS_MIN_GEV, MASS_MAX_GEV, RECOIL_BINS, RECOIL_MIN_GEV, RECOIL_MAX_GEV);
 
-    TH1F *hDeltaTheta =
-        new TH1F("hDeltaTheta", "#Delta#theta between two jets;#Delta#theta [rad];Events",
-                 DELTA_THETA_BINS, DELTA_THETA_MIN, DELTA_THETA_MAX);
+        TH1F *hCosThetaZ =
+            new TH1F("hCosThetaZ ", "cos#theta of Z Boson (Two-Jet System);cos#theta_{Z};Events ",
+                     COS_THETA_Z_BINS, COS_THETA_Z_MIN, COS_THETA_Z_MAX);
 
-    TH1F *hDeltaPhi = new TH1F("hDeltaPhi", "#Delta#phi between two jets;#Delta#phi [rad];Events",
-                               DELTA_PHI_BINS, DELTA_PHI_MIN, DELTA_PHI_MAX);
+        TH1F *hDeltaR =
+            new TH1F("hDeltaR",
+                     "Distance #Delta R Between Two Jets;#Delta R = #sqrt{#Delta#eta^{2} + "
+                     "#Delta#phi^{2}};Events",
+                     DELTA_R_BINS, DELTA_R_MIN, DELTA_R_MAX);
 
-    TH1F *hMETpfo = new TH1F("hMETpfo", "MET from all PFOs;MET_{PFO} [GeV];Events", MET_PFO_BINS,
-                             MET_PFO_MIN, MET_PFO_MAX);
-    TH1F *hMETjet = new TH1F("hMETjet", "MET from Two Jets;MET_{jet} [GeV];Events", MET_JET_BINS,
-                             MET_JET_MIN, MET_JET_MAX);
-    TH1F *hPmissMag =
-        new TH1F("hPmissMag", "Magnitude of Missing 3-Momentum;|P_{miss}| [GeV];Events", PMISS_BINS,
-                 PMISS_MIN_GEV, PMISS_MAX_GEV);
+        TH1F *hCosThetaJet = new TH1F("hCosThetaJet", "cos#theta of Jets;cos#theta;Events",
+                                      COS_THETA_JET_BINS, COS_THETA_JET_MIN, COS_THETA_JET_MAX);
 
-    TH1F *hCosThetaPmiss =
-        new TH1F("hCosThetaPmiss", "cos#theta of Missing 3-Momentum;cos#theta_{miss};Events",
-                 COS_THETA_PMISS_BINS, COS_THETA_PMISS_MIN, COS_THETA_PMISS_MAX);
+        TH1F *hDeltaTheta =
+            new TH1F("hDeltaTheta", "#Delta#theta between two jets;#Delta#theta [rad];Events",
+                     DELTA_THETA_BINS, DELTA_THETA_MIN, DELTA_THETA_MAX);
 
-    TH2F *h2D_Mrecoil_vs_MET = new TH2F(
-        "h2D_Mrecoil_vs_MET", "M_{recoil} vs MET_{jet};MET_{jet} [GeV];M_{recoil} [GeV]",
-        MET_JET_BINS, MET_JET_MIN, MET_JET_MAX, RECOIL_BINS, RECOIL_MIN_GEV, RECOIL_MAX_GEV);
-    TH2F *h2D_Mrecoil_vs_Pmiss = new TH2F(
-        "h2D_Mrecoil_vs_Pmiss", "M_{recoil} vs |P_{miss}|;|P_{miss}| [GeV];M_{recoil} [GeV]",
-        PMISS_BINS, PMISS_MIN_GEV, PMISS_MAX_GEV, RECOIL_BINS, RECOIL_MIN_GEV, RECOIL_MAX_GEV);
-    TH2F *h2D_MET_vs_Pmiss =
-        new TH2F("h2D_MET_vs_Pmiss", "MET_{jet} vs |P_{miss}|;|P_{miss}| [GeV];MET_{jet} [GeV]",
-                 PMISS_BINS, PMISS_MIN_GEV, PMISS_MAX_GEV, MET_JET_BINS, MET_JET_MIN, MET_JET_MAX);
-    TH2F *h2D_Mjj_vs_MET =
-        new TH2F("h2D_Mjj_vs_MET", "M_{jj} vs MET_{jet};MET_{jet} [GeV];M_{jj} [GeV]", MET_JET_BINS,
-                 MET_JET_MIN, MET_JET_MAX, MASS_BINS, MASS_MIN_GEV, MASS_MAX_GEV);
-    TH2F *h2D_Mjj_vs_Pmiss =
-        new TH2F("h2D_Mjj_vs_Pmiss", "M_{jj} vs |P_{miss}|;|P_{miss}| [GeV];M_{jj} [GeV]",
-                 PMISS_BINS, PMISS_MIN_GEV, PMISS_MAX_GEV, MASS_BINS, MASS_MIN_GEV, MASS_MAX_GEV);
-    TH2F *h2D_CosThetaZ_vs_CosThetaPmiss =
-        new TH2F("h2D_CosThetaZ_vs_CosThetaPmiss",
-                 "cos#theta_{Z} vs cos#theta_{miss};cos#theta_{miss};cos#theta_{Z}",
-                 COS_THETA_PMISS_BINS, COS_THETA_PMISS_MIN, COS_THETA_PMISS_MAX, COS_THETA_Z_BINS,
-                 COS_THETA_Z_MIN, COS_THETA_Z_MAX);
-    TH1F *hDijetEnergy = new TH1F("hDijetEnergy", "Dijet System Energy;E_{jj} [GeV];Events",
-                                  DIJET_ENERGY_BINS, DIJET_ENERGY_MIN_GEV, DIJET_ENERGY_MAX_GEV);
+        TH1F *hDeltaPhi =
+            new TH1F("hDeltaPhi", "#Delta#phi between two jets;#Delta#phi [rad];Events",
+                     DELTA_PHI_BINS, DELTA_PHI_MIN, DELTA_PHI_MAX);
 
-    // Статистики
-    CutStatistics stats;
-    IsoElectronStats elecStats;
+        TH1F *hMETpfo = new TH1F("hMETpfo", "MET from all PFOs;MET_{PFO} [GeV];Events",
+                                 MET_PFO_BINS, MET_PFO_MIN, MET_PFO_MAX);
+        TH1F *hMETjet = new TH1F("hMETjet", "MET from Two Jets;MET_{jet} [GeV];Events",
+                                 MET_JET_BINS, MET_JET_MIN, MET_JET_MAX);
+        TH1F *hPmissMag =
+            new TH1F("hPmissMag", "Magnitude of Missing 3-Momentum;|P_{miss}| [GeV];Events",
+                     PMISS_BINS, PMISS_MIN_GEV, PMISS_MAX_GEV);
 
-    // Основной цикл по событиям
-    Long64_t nEntries = tree->GetEntries();
-    std::cout << "\nНачало обработки событий..." << std::endl;
+        TH1F *hCosThetaPmiss =
+            new TH1F("hCosThetaPmiss", "cos#theta of Missing 3-Momentum;cos#theta_{miss};Events",
+                     COS_THETA_PMISS_BINS, COS_THETA_PMISS_MIN, COS_THETA_PMISS_MAX);
 
-    for (Long64_t i = 0; i < nEntries; ++i) {
-        tree->GetEntry(i);
-        logProgress(i + 1, nEntries, "Processing");
-        stats.totalEvents++;
+        TH2F *h2D_Mrecoil_vs_MET = new TH2F(
+            "h2D_Mrecoil_vs_MET", "M_{recoil} vs MET_{jet};MET_{jet} [GeV];M_{recoil} [GeV]",
+            MET_JET_BINS, MET_JET_MIN, MET_JET_MAX, RECOIL_BINS, RECOIL_MIN_GEV, RECOIL_MAX_GEV);
+        TH2F *h2D_Mrecoil_vs_Pmiss = new TH2F(
+            "h2D_Mrecoil_vs_Pmiss", "M_{recoil} vs |P_{miss}|;|P_{miss}| [GeV];M_{recoil} [GeV]",
+            PMISS_BINS, PMISS_MIN_GEV, PMISS_MAX_GEV, RECOIL_BINS, RECOIL_MIN_GEV, RECOIL_MAX_GEV);
+        TH2F *h2D_MET_vs_Pmiss = new TH2F(
+            "h2D_MET_vs_Pmiss", "MET_{jet} vs |P_{miss}|;|P_{miss}| [GeV];MET_{jet} [GeV]",
+            PMISS_BINS, PMISS_MIN_GEV, PMISS_MAX_GEV, MET_JET_BINS, MET_JET_MIN, MET_JET_MAX);
+        TH2F *h2D_Mjj_vs_MET =
+            new TH2F("h2D_Mjj_vs_MET", "M_{jj} vs MET_{jet};MET_{jet} [GeV];M_{jj} [GeV]",
+                     MET_JET_BINS, MET_JET_MIN, MET_JET_MAX, MASS_BINS, MASS_MIN_GEV, MASS_MAX_GEV);
+        TH2F *h2D_Mjj_vs_Pmiss = new TH2F(
+            "h2D_Mjj_vs_Pmiss", "M_{jj} vs |P_{miss}|;|P_{miss}| [GeV];M_{jj} [GeV]", PMISS_BINS,
+            PMISS_MIN_GEV, PMISS_MAX_GEV, MASS_BINS, MASS_MIN_GEV, MASS_MAX_GEV);
+        TH2F *h2D_CosThetaZ_vs_CosThetaPmiss =
+            new TH2F("h2D_CosThetaZ_vs_CosThetaPmiss",
+                     "cos#theta_{Z} vs cos#theta_{miss};cos#theta_{miss};cos#theta_{Z}",
+                     COS_THETA_PMISS_BINS, COS_THETA_PMISS_MIN, COS_THETA_PMISS_MAX,
+                     COS_THETA_Z_BINS, COS_THETA_Z_MIN, COS_THETA_Z_MAX);
+        TH1F *hDijetEnergy =
+            new TH1F("hDijetEnergy", "Dijet System Energy;E_{jj} [GeV];Events", DIJET_ENERGY_BINS,
+                     DIJET_ENERGY_MIN_GEV, DIJET_ENERGY_MAX_GEV);
 
-        // Сбор статистики по лептонам (до всех катов)
-        if (particleType && pfoE && pfoPx && pfoPy && pfoPz) {
-            for (size_t k = 0; k < particleType->size(); ++k) {
+        // Взвешенная гистограмма массы отдачи для текущего процесса
+        TH1F *hRecoilMassWeight = new TH1F(
+            ("hRecoil_" + processName).c_str(), "Weight Recoil Mass;M_{recoil} [GeV];Events",
+            RECOIL_STACK_BINS, RECOIL_STACK_MIN_GEV, RECOIL_STACK_MAX_GEV);
+        hRecoilMassWeight->SetDirectory(0); // Отключаем автоматическое удаление при закрытии файла
+        processRecoilHists[processName] = {hRecoilMassWeight, proc};
 
-                // Отбираем электроны
-                if (std::abs(particleType->at(k)) == PDG_ELECTRON) {
-                    if (isLeptonIsolatedROOT_FSR(k, particleType, pfoE, pfoPx, pfoPy, pfoPz)) {
-                        double px = pfoPx->at(k);
-                        double py = pfoPy->at(k);
-                        double pz = pfoPz->at(k);
-                        double p = std::sqrt(px * px + py * py + pz * pz);
-                        double cosTheta = (p > 1e-9) ? pz / p : 0.0;
+        // Статистики
+        CutStatistics stats;
+        IsoElectronStats elecStats;
 
-                        elecStats.total++;
-                        if (std::abs(cosTheta) < 0.7)
-                            elecStats.barrel++;
-                        else
-                            elecStats.endcap++;
+        // Основной цикл по событиям
+        Long64_t nEntries = tree->GetEntries();
+        std::cout << "\nНачало обработки событий..." << std::endl;
+
+        for (Long64_t i = 0; i < nEntries; ++i) {
+            tree->GetEntry(i);
+            logProgress(i + 1, nEntries, "Processing");
+            stats.totalEvents++;
+
+            // Сбор статистики по лептонам (до всех катов)
+            if (particleType && pfoE && pfoPx && pfoPy && pfoPz) {
+                for (size_t k = 0; k < particleType->size(); ++k) {
+
+                    // Отбираем электроны
+                    if (std::abs(particleType->at(k)) == PDG_ELECTRON) {
+                        if (isLeptonIsolatedROOT_FSR(k, particleType, pfoE, pfoPx, pfoPy, pfoPz)) {
+                            double px = pfoPx->at(k);
+                            double py = pfoPy->at(k);
+                            double pz = pfoPz->at(k);
+                            double p = std::sqrt(px * px + py * py + pz * pz);
+                            double cosTheta = (p > 1e-9) ? pz / p : 0.0;
+
+                            elecStats.total++;
+                            if (std::abs(cosTheta) < 0.7)
+                                elecStats.barrel++;
+                            else
+                                elecStats.endcap++;
+                        }
                     }
                 }
             }
-        }
 
-        // ==================== ПРЕДОТБОРЫ ====================
-        if (APPLY_PRE_LEPTON_VETO &&
-            hasIsolatedLeptonROOT_FSR(particleType, pfoE, pfoPx, pfoPy, pfoPz))
-            continue;
-        stats.afterPreLeptonVeto++;
-
-        if (APPLY_PRE_HIGH_E_PHOTON_VETO &&
-            hasHighEnergyPhoton(particleType, pfoE, photonEnergyCut))
-            continue;
-        stats.afterPreHighEPhotonVeto++;
-
-        if (APPLY_PRE_ISOLATED_PHOTON_VETO &&
-            hasIsolatedPhoton(particleType, pfoE, pfoPx, pfoPy, pfoPz, PHOTON_ISO_MIN_ENERGY_GEV,
-                              PHOTON_ISO_COS_CONE_ANGLE, PHOTON_ISO_MAX_CONE_ENERGY_GEV))
-            continue;
-        stats.afterPreIsoPhotonVeto++;
-
-        if (APPLY_PRE_TWO_JETS_REQUIREMENT && inclJetE->size() != 2)
-            continue;
-        stats.afterPreJetCount++;
-
-        if (APPLY_PRE_CONSTITUENTS_REQUIREMENT) {
-            int n1 = static_cast<int>(inclJetSize->at(0));
-            int n2 = static_cast<int>(inclJetSize->at(1));
-            if (n1 < minConstituents || n2 < minConstituents)
+            // ==================== ПРЕДОТБОРЫ ====================
+            if (APPLY_PRE_LEPTON_VETO &&
+                hasIsolatedLeptonROOT_FSR(particleType, pfoE, pfoPx, pfoPy, pfoPz))
                 continue;
-        }
-        stats.afterPreConstituents++;
+            stats.afterPreLeptonVeto++;
 
-        // ==================== КИНЕМАТИКА И ЗАПОЛНЕНИЕ ГИСТОГРАММ ====================
-        // Событие прошло все предотборы, строим распределения
-        TLorentzVector jet1(inclJetPx->at(0), inclJetPy->at(0), inclJetPz->at(0), inclJetE->at(0));
-        TLorentzVector jet2(inclJetPx->at(1), inclJetPy->at(1), inclJetPz->at(1), inclJetE->at(1));
-        TLorentzVector dijet = jet1 + jet2;
+            if (APPLY_PRE_HIGH_E_PHOTON_VETO &&
+                hasHighEnergyPhoton(particleType, pfoE, PHOTON_ENERGY_CUT_GEV))
+                continue;
+            stats.afterPreHighEPhotonVeto++;
 
-        double invMass = dijet.M();
-        double recoilMass = calculateRecoilMass(dijet, SQRT_S_GEV);
-        double cosThetaZ = std::cos(calculatePolarAngle(dijet));
-        double deltaR = calculateDeltaR(jet1, jet2);
-        double cosTheta1 = (jet1.P() > 1e-9) ? jet1.Pz() / jet1.P() : 0.0;
-        double cosTheta2 = (jet2.P() > 1e-9) ? jet2.Pz() / jet2.P() : 0.0;
-        double met_jet = dijet.Pt();
-        double dijetEnergy = dijet.E();
-        double theta1 = calculatePolarAngle(jet1);
-        double theta2 = calculatePolarAngle(jet2);
-        double deltaTheta = std::abs(theta1 - theta2);
-        double phi1 = jet1.Phi();
-        double phi2 = jet2.Phi();
-        double deltaPhi = std::abs(phi1 - phi2);
-        if (deltaPhi > M_PI)
-            deltaPhi = 2 * M_PI - deltaPhi;
+            if (APPLY_PRE_ISOLATED_PHOTON_VETO &&
+                hasIsolatedPhoton(particleType, pfoE, pfoPx, pfoPy, pfoPz,
+                                  PHOTON_ISO_MIN_ENERGY_GEV, PHOTON_ISO_COS_CONE_ANGLE,
+                                  PHOTON_ISO_MAX_CONE_ENERGY_GEV))
+                continue;
+            stats.afterPreIsoPhotonVeto++;
 
-        double met_pfo = 0.0, pmiss_x = 0.0, pmiss_y = 0.0, pmiss_z = 0.0;
-        if (pfoPx && pfoPy && pfoPz) {
-            double sPx = 0, sPy = 0, sPz = 0;
-            for (size_t k = 0; k < pfoPx->size(); ++k) {
-                sPx += pfoPx->at(k);
-                sPy += pfoPy->at(k);
-                sPz += pfoPz->at(k);
+            if (APPLY_PRE_TWO_JETS_REQUIREMENT && inclJetE->size() != 2)
+                continue;
+            stats.afterPreJetCount++;
+
+            if (APPLY_PRE_CONSTITUENTS_REQUIREMENT) {
+                int n1 = static_cast<int>(inclJetSize->at(0));
+                int n2 = static_cast<int>(inclJetSize->at(1));
+                if (n1 < MIN_CONSTITUENTS_PER_JET || n2 < MIN_CONSTITUENTS_PER_JET)
+                    continue;
             }
-            met_pfo = std::sqrt(sPx * sPx + sPy * sPy);
-            pmiss_x = -sPx;
-            pmiss_y = -sPy;
-            pmiss_z = -sPz;
+            stats.afterPreConstituents++;
+
+            // ==================== КИНЕМАТИКА И ЗАПОЛНЕНИЕ ГИСТОГРАММ ====================
+            // Событие прошло все предотборы, строим распределения
+            TLorentzVector jet1(inclJetPx->at(0), inclJetPy->at(0), inclJetPz->at(0),
+                                inclJetE->at(0));
+            TLorentzVector jet2(inclJetPx->at(1), inclJetPy->at(1), inclJetPz->at(1),
+                                inclJetE->at(1));
+            TLorentzVector dijet = jet1 + jet2;
+
+            double invMass = dijet.M();
+            double recoilMass = calculateRecoilMass(dijet, SQRT_S_GEV);
+            double cosThetaZ = std::cos(calculatePolarAngle(dijet));
+            double deltaR = calculateDeltaR(jet1, jet2);
+            double cosTheta1 = (jet1.P() > 1e-9) ? jet1.Pz() / jet1.P() : 0.0;
+            double cosTheta2 = (jet2.P() > 1e-9) ? jet2.Pz() / jet2.P() : 0.0;
+            double met_jet = dijet.Pt();
+            double dijetEnergy = dijet.E();
+            double theta1 = calculatePolarAngle(jet1);
+            double theta2 = calculatePolarAngle(jet2);
+            double deltaTheta = std::abs(theta1 - theta2);
+            double phi1 = jet1.Phi();
+            double phi2 = jet2.Phi();
+            double deltaPhi = std::abs(phi1 - phi2);
+            if (deltaPhi > M_PI)
+                deltaPhi = 2 * M_PI - deltaPhi;
+
+            double met_pfo = 0.0, pmiss_x = 0.0, pmiss_y = 0.0, pmiss_z = 0.0;
+            if (pfoPx && pfoPy && pfoPz) {
+                double sPx = 0, sPy = 0, sPz = 0;
+                for (size_t k = 0; k < pfoPx->size(); ++k) {
+                    sPx += pfoPx->at(k);
+                    sPy += pfoPy->at(k);
+                    sPz += pfoPz->at(k);
+                }
+                met_pfo = std::sqrt(sPx * sPx + sPy * sPy);
+                pmiss_x = -sPx;
+                pmiss_y = -sPy;
+                pmiss_z = -sPz;
+            }
+            double pmiss_mag = std::sqrt(pmiss_x * pmiss_x + pmiss_y * pmiss_y + pmiss_z * pmiss_z);
+            double cosThetaPmiss =
+                (pmiss_mag > 1e-9) ? std::max(-1.0, std::min(1.0, pmiss_z / pmiss_mag)) : 0.0;
+
+            hInvMass->Fill(invMass);
+            hRecoilMass->Fill(recoilMass);
+            h2D_Correlation->Fill(invMass, recoilMass);
+            hCosThetaZ->Fill(cosThetaZ);
+            hDeltaR->Fill(deltaR);
+            hCosThetaJet->Fill(cosTheta1);
+            hCosThetaJet->Fill(cosTheta2);
+            hMETpfo->Fill(met_pfo);
+            hMETjet->Fill(met_jet);
+            hPmissMag->Fill(pmiss_mag);
+            hCosThetaPmiss->Fill(cosThetaPmiss);
+            hDijetEnergy->Fill(dijetEnergy);
+            hDeltaTheta->Fill(deltaTheta);
+            hDeltaPhi->Fill(deltaPhi);
+
+            h2D_Mrecoil_vs_MET->Fill(met_jet, recoilMass);
+            h2D_Mrecoil_vs_Pmiss->Fill(pmiss_mag, recoilMass);
+            h2D_MET_vs_Pmiss->Fill(pmiss_mag, met_jet);
+            h2D_Mjj_vs_MET->Fill(met_jet, invMass);
+            h2D_Mjj_vs_Pmiss->Fill(pmiss_mag, invMass);
+            h2D_CosThetaZ_vs_CosThetaPmiss->Fill(cosThetaPmiss, cosThetaZ);
+
+            // ==================== ОСНОВНЫЕ ОТБОРЫ ====================
+            if (APPLY_MAIN_MET_CUT && (met_jet < MET_CUT_MIN_GEV || met_jet > MET_CUT_MAX_GEV))
+                continue;
+            stats.afterMetCut++;
+
+            if (APPLY_MAIN_PMISS_CUT &&
+                (pmiss_mag < PMISS_CUT_MIN_GEV || pmiss_mag > PMISS_CUT_MAX_GEV))
+                continue;
+            stats.afterPmissCut++;
+
+            if (APPLY_MAIN_DIJET_MASS_WINDOW &&
+                (invMass < DIJET_MASS_WINDOW_MIN_GEV || invMass > DIJET_MASS_WINDOW_MAX_GEV))
+                continue;
+            stats.afterDijetMassWindow++;
+
+            if (APPLY_MAIN_COS_THETA_Z_CUT && std::abs(cosThetaZ) >= COS_THETA_Z_CUT)
+                continue;
+            stats.afterCosThetaZCut++;
+
+            if (APPLY_MAIN_RECOIL_MASS_WINDOW && (recoilMass < RECOIL_MASS_WINDOW_MIN_GEV ||
+                                                  recoilMass > RECOIL_MASS_WINDOW_MAX_GEV))
+                continue;
+            stats.afterRecoilMassWindow++;
+
+            if (APPLY_MAIN_ELLIPSE_CUT &&
+                !isInsideEllipse(invMass, recoilMass, ELLIPSE_CX_GEV, ELLIPSE_CY_GEV, ELLIPSE_A_GEV,
+                                 ELLIPSE_B_GEV, ELLIPSE_THETA))
+                continue;
+            stats.afterEllipseCut++;
+
+            stats.finalSelected++;
+
+            // Если событие прошло все отборы, то заполняем взвешенную гистограмму текущего процесса
+            hRecoilMassWeight->Fill(recoilMass, proc.weight);
         }
-        double pmiss_mag = std::sqrt(pmiss_x * pmiss_x + pmiss_y * pmiss_y + pmiss_z * pmiss_z);
-        double cosThetaPmiss =
-            (pmiss_mag > 1e-9) ? std::max(-1.0, std::min(1.0, pmiss_z / pmiss_mag)) : 0.0;
 
-        hInvMass->Fill(invMass);
-        hRecoilMass->Fill(recoilMass);
-        h2D_Correlation->Fill(invMass, recoilMass);
-        hCosThetaZ->Fill(cosThetaZ);
-        hDeltaR->Fill(deltaR);
-        hCosThetaJet->Fill(cosTheta1);
-        hCosThetaJet->Fill(cosTheta2);
-        hMETpfo->Fill(met_pfo);
-        hMETjet->Fill(met_jet);
-        hPmissMag->Fill(pmiss_mag);
-        hCosThetaPmiss->Fill(cosThetaPmiss);
-        hDijetEnergy->Fill(dijetEnergy);
-        hDeltaTheta->Fill(deltaTheta);
-        hDeltaPhi->Fill(deltaPhi);
+        // Итоговая статистика
+        auto endTime = std::chrono::high_resolution_clock::now();
+        auto totalSec =
+            std::chrono::duration_cast<std::chrono::seconds>(endTime - startTime).count();
 
-        h2D_Mrecoil_vs_MET->Fill(met_jet, recoilMass);
-        h2D_Mrecoil_vs_Pmiss->Fill(pmiss_mag, recoilMass);
-        h2D_MET_vs_Pmiss->Fill(pmiss_mag, met_jet);
-        h2D_Mjj_vs_MET->Fill(met_jet, invMass);
-        h2D_Mjj_vs_Pmiss->Fill(pmiss_mag, invMass);
-        h2D_CosThetaZ_vs_CosThetaPmiss->Fill(cosThetaPmiss, cosThetaZ);
+        std::cout << "\n=======================================================" << std::endl;
+        std::cout << "Обработка завершена!" << std::endl;
+        std::cout << "Всего событий: " << nEntries << std::endl;
+        std::cout << "Прошло времени: " << totalSec << " с (" << totalSec / 60.0 << " мин)"
+                  << std::endl;
 
-        // ==================== ОСНОВНЫЕ ОТБОРЫ ====================
-        if (APPLY_MAIN_MET_CUT && (met_jet < MET_CUT_MIN_GEV || met_jet > MET_CUT_MAX_GEV))
-            continue;
-        stats.afterMetCut++;
+        stats.print(processName);
+        elecStats.print();
 
-        if (APPLY_MAIN_PMISS_CUT &&
-            (pmiss_mag < PMISS_CUT_MIN_GEV || pmiss_mag > PMISS_CUT_MAX_GEV))
-            continue;
-        stats.afterPmissCut++;
+        // Отрисовка гистограмм с условным отображением основных отборов
+        std::vector<std::pair<double, std::string>> invMassMarks = {{MZ_GEV, "M_{Z}"}};
+#if APPLY_MAIN_DIJET_MASS_WINDOW
+        invMassMarks.emplace_back(DIJET_MASS_WINDOW_MIN_GEV, "M_{jj}^{min}");
+        invMassMarks.emplace_back(DIJET_MASS_WINDOW_MAX_GEV, "M_{jj}^{max}");
+#endif
+        drawHistogram1D(hInvMass, "cInvMass", "M_{jj} [GeV]", OUTPUT_INV_MASS, invMassMarks, kRed,
+                        2);
 
-        if (APPLY_MAIN_DIJET_MASS_WINDOW &&
-            (invMass < DIJET_MASS_WINDOW_MIN_GEV || invMass > DIJET_MASS_WINDOW_MAX_GEV))
-            continue;
-        stats.afterDijetMassWindow++;
+        std::vector<std::pair<double, std::string>> recoilMarks = {{MH_GEV, "M_{H}"}};
+#if APPLY_MAIN_RECOIL_MASS_WINDOW
+        recoilMarks.emplace_back(RECOIL_MASS_WINDOW_MIN_GEV, "M_{rec}^{min}");
+        recoilMarks.emplace_back(RECOIL_MASS_WINDOW_MAX_GEV, "M_{rec}^{max}");
+#endif
+        drawHistogram1D(hRecoilMass, "cRecoilMass", "M_{recoil} [GeV]", OUTPUT_RECOIL_MASS,
+                        recoilMarks, kBlue, 2);
 
-        if (APPLY_MAIN_COS_THETA_Z_CUT && std::abs(cosThetaZ) >= COS_THETA_Z_CUT)
-            continue;
-        stats.afterCosThetaZCut++;
+        drawHistogram2D(h2D_Correlation, "c2D_Correlation", "M_{jj} [GeV]", "M_{recoil} [GeV]",
+                        OUTPUT_2D_CORR, MZ_GEV, MH_GEV, "M_{Z}", "M_{H}",
+#if APPLY_MAIN_ELLIPSE_CUT
+                        ELLIPSE_CX_GEV, ELLIPSE_CY_GEV, ELLIPSE_A_GEV, ELLIPSE_B_GEV, ELLIPSE_THETA,
+                        true
+#else
+                        -1, -1, -1, -1, 0, false
+#endif
+        );
 
-        if (APPLY_MAIN_RECOIL_MASS_WINDOW &&
-            (recoilMass < RECOIL_MASS_WINDOW_MIN_GEV || recoilMass > RECOIL_MASS_WINDOW_MAX_GEV))
-            continue;
-        stats.afterRecoilMassWindow++;
+        std::vector<std::pair<double, std::string>> cosThetaMarks;
+#if APPLY_MAIN_COS_THETA_Z_CUT
+        cosThetaMarks.emplace_back(COS_THETA_Z_CUT, "|cos#theta|^{cut}");
+        cosThetaMarks.emplace_back(-COS_THETA_Z_CUT, "-|cos#theta|^{cut}");
+#endif
+        drawHistogram1D(hCosThetaZ, "cCosThetaZ", "cos#theta_{Z}", OUTPUT_COS_THETA_Z,
+                        cosThetaMarks, kRed, 2);
 
-        if (APPLY_MAIN_ELLIPSE_CUT &&
-            !isInsideEllipse(invMass, recoilMass, ELLIPSE_CX_GEV, ELLIPSE_CY_GEV, ELLIPSE_A_GEV,
-                             ELLIPSE_B_GEV, ELLIPSE_THETA))
-            continue;
-        stats.afterEllipseCut++;
+        drawHistogram1D(hDeltaR, "cDeltaR", "#Delta R", OUTPUT_DELTA_R, {}, kMagenta, 2);
 
-        stats.finalSelected++;
+        drawHistogram1D(hCosThetaJet, "cCosThetaJet", "cos#theta", OUTPUT_COS_THETA_JET, {}, kCyan,
+                        2);
+
+        drawHistogram1D(hMETpfo, "cMETpfo", "MET_{PFO} [GeV]", OUTPUT_MET_PFO, {}, kOrange + 1, 2);
+
+        std::vector<std::pair<double, std::string>> metMarks;
+#if APPLY_MAIN_MET_CUT
+        metMarks.emplace_back(MET_CUT_MIN_GEV, "MET_{min}");
+#endif
+        drawHistogram1D(hMETjet, "cMETjet", "MET_{jet} [GeV]", OUTPUT_MET_JET, metMarks, kViolet,
+                        2);
+
+        // h2D_Mrecoil_vs_MET: вертикальная линия MET > 20 GeV
+        drawHistogram2D(h2D_Mrecoil_vs_MET, "c2D_Mrecoil_vs_MET", "MET_{jet} [GeV]",
+                        "M_{recoil} [GeV]", makeOutputPath("2D_Mrecoil_vs_MET"),
+#if APPLY_MAIN_MET_CUT
+                        MET_CUT_MIN_GEV, -1, "MET_{min}", "");
+#else
+                        -1, -1, "", "");
+#endif
+
+        // h2D_Mrecoil_vs_Pmiss: без активных отборов по этим осям
+        drawHistogram2D(h2D_Mrecoil_vs_Pmiss, "c2D_Mrecoil_vs_Pmiss", "|P_{miss}| [GeV]",
+                        "M_{recoil} [GeV]", makeOutputPath("2D_Mrecoil_vs_Pmiss"));
+
+        // h2D_MET_vs_Pmiss: вертикальная линия MET > 20 GeV (ось Y здесь MET)
+        drawHistogram2D(h2D_MET_vs_Pmiss, "c2D_MET_vs_Pmiss", "|P_{miss}| [GeV]", "MET_{jet} [GeV]",
+                        makeOutputPath("2D_MET_vs_Pmiss"),
+#if APPLY_MAIN_MET_CUT
+                        -1, MET_CUT_MIN_GEV, "", "MET_{min}");
+#else
+                        -1, -1, "", "");
+#endif
+
+        // h2D_Mjj_vs_MET: вертикальная линия MET > 20 GeV
+        drawHistogram2D(h2D_Mjj_vs_MET, "c2D_Mjj_vs_MET", "MET_{jet} [GeV]", "M_{jj} [GeV]",
+                        makeOutputPath("2D_Mjj_vs_MET"),
+#if APPLY_MAIN_MET_CUT
+                        MET_CUT_MIN_GEV, -1, "MET_{min}", "");
+#else
+                        -1, -1, "", "");
+#endif
+
+        // h2D_Mjj_vs_Pmiss: без активных отборов по этим осям
+        drawHistogram2D(h2D_Mjj_vs_Pmiss, "c2D_Mjj_vs_Pmiss", "|P_{miss}| [GeV]", "M_{jj} [GeV]",
+                        makeOutputPath("2D_Mjj_vs_Pmiss"));
+
+        // h2D_CosThetaZ_vs_CosThetaPmiss: горизонтальные линии |cosθ_Z| < 0.98
+        drawHistogram2D(h2D_CosThetaZ_vs_CosThetaPmiss, "c2D_CosThetaZ_vs_CosThetaPmiss",
+                        "cos#theta_{miss}", "cos#theta_{Z}",
+                        makeOutputPath("2D_CosThetaZ_vs_CosThetaPmiss"),
+#if APPLY_MAIN_COS_THETA_Z_CUT
+                        -1, COS_THETA_Z_CUT, "", "|cos#theta|^{cut}");
+#else
+                        -1, -1, "", "");
+#endif
+
+        // Остальные гистограммы без линий отборов
+        drawHistogram1D(hPmissMag, "cPmissMag", "|P_{miss}| [GeV]", OUTPUT_PMISS_MAG, {}, kOrange,
+                        2);
+        drawHistogram1D(hCosThetaPmiss, "cCosThetaPmiss", "cos#theta_{miss}",
+                        OUTPUT_COS_THETA_PMISS, {}, kMagenta, 2);
+        drawHistogram1D(hDijetEnergy, "cDijetEnergy", "E_{jj} [GeV]",
+                        makeOutputPath("dijet_energy"), {}, kAzure + 1, 2);
+        drawHistogram1D(hDeltaTheta, "cDeltaTheta", "#Delta#theta [rad]",
+                        makeOutputPath("deltaTheta_jets"), {}, kOrange + 1, 2);
+
+        drawHistogram1D(hDeltaPhi, "cDeltaPhi", "#Delta#phi [rad]", makeOutputPath("deltaPhi_jets"),
+                        {}, kGreen + 2, 2);
+
+        // Очистка памяти
+        delete hInvMass;
+        delete hRecoilMass;
+        delete h2D_Correlation;
+        delete hCosThetaZ;
+        delete hDeltaR;
+        delete hCosThetaJet;
+        delete hMETpfo;
+        delete hMETjet;
+        delete hPmissMag;
+        delete hCosThetaPmiss;
+        delete h2D_Mrecoil_vs_MET;
+        delete h2D_Mrecoil_vs_Pmiss;
+        delete h2D_MET_vs_Pmiss;
+        delete h2D_Mjj_vs_MET;
+        delete h2D_Mjj_vs_Pmiss;
+        delete h2D_CosThetaZ_vs_CosThetaPmiss;
+        delete hDijetEnergy;
+        delete hDeltaTheta;
+        delete hDeltaPhi;
+        inputFile->Close();
+        delete inputFile;
+
+        std::cout << "\nГотово. Результаты сохранены в: " << fs::absolute(processOutputDir)
+                  << std::endl;
     }
 
-    // Итоговая статистика
-    auto endTime = std::chrono::high_resolution_clock::now();
-    auto totalSec = std::chrono::duration_cast<std::chrono::seconds>(endTime - startTime).count();
+    // Построение стек гистограммы
+    std::string stackOutput = (fs::path(outputBaseDir) / "recoil_stack_weighted.pdf").string();
+    drawRecoilStack(processRecoilHists, RECOIL_STACK_ORDER, stackOutput);
 
-    std::cout << "\n=======================================================" << std::endl;
-    std::cout << "Обработка завершена!" << std::endl;
-    std::cout << "Всего событий: " << nEntries << std::endl;
-    std::cout << "Прошло времени: " << totalSec << " с (" << totalSec / 60.0 << " мин)"
-              << std::endl;
+    // Очистка
+    for (auto &p : processRecoilHists)
+        delete p.second.first;
 
-    stats.print(processName);
-    elecStats.print();
-
-    // Отрисовка гистограмм с условным отображением основных отборов
-    std::vector<std::pair<double, std::string>> invMassMarks = {{MZ_GEV, "M_{Z}"}};
-#if APPLY_MAIN_DIJET_MASS_WINDOW
-    invMassMarks.emplace_back(DIJET_MASS_WINDOW_MIN_GEV, "M_{jj}^{min}");
-    invMassMarks.emplace_back(DIJET_MASS_WINDOW_MAX_GEV, "M_{jj}^{max}");
-#endif
-    drawHistogram1D(hInvMass, "cInvMass", "M_{jj} [GeV]", OUTPUT_INV_MASS, invMassMarks, kRed, 2);
-
-    std::vector<std::pair<double, std::string>> recoilMarks = {{MH_GEV, "M_{H}"}};
-#if APPLY_MAIN_RECOIL_MASS_WINDOW
-    recoilMarks.emplace_back(RECOIL_MASS_WINDOW_MIN_GEV, "M_{rec}^{min}");
-    recoilMarks.emplace_back(RECOIL_MASS_WINDOW_MAX_GEV, "M_{rec}^{max}");
-#endif
-    drawHistogram1D(hRecoilMass, "cRecoilMass", "M_{recoil} [GeV]", OUTPUT_RECOIL_MASS, recoilMarks,
-                    kBlue, 2);
-
-    drawHistogram2D(h2D_Correlation, "c2D_Correlation", "M_{jj} [GeV]", "M_{recoil} [GeV]",
-                    OUTPUT_2D_CORR, MZ_GEV, MH_GEV, "M_{Z}", "M_{H}",
-#if APPLY_MAIN_ELLIPSE_CUT
-                    ELLIPSE_CX_GEV, ELLIPSE_CY_GEV, ELLIPSE_A_GEV, ELLIPSE_B_GEV, ELLIPSE_THETA,
-                    true
-#else
-                    -1, -1, -1, -1, 0, false
-#endif
-    );
-
-    std::vector<std::pair<double, std::string>> cosThetaMarks;
-#if APPLY_MAIN_COS_THETA_Z_CUT
-    cosThetaMarks.emplace_back(COS_THETA_Z_CUT, "|cos#theta|^{cut}");
-    cosThetaMarks.emplace_back(-COS_THETA_Z_CUT, "-|cos#theta|^{cut}");
-#endif
-    drawHistogram1D(hCosThetaZ, "cCosThetaZ", "cos#theta_{Z}", OUTPUT_COS_THETA_Z, cosThetaMarks,
-                    kRed, 2);
-
-    drawHistogram1D(hDeltaR, "cDeltaR", "#Delta R", OUTPUT_DELTA_R, {}, kMagenta, 2);
-
-    drawHistogram1D(hCosThetaJet, "cCosThetaJet", "cos#theta", OUTPUT_COS_THETA_JET, {}, kCyan, 2);
-
-    drawHistogram1D(hMETpfo, "cMETpfo", "MET_{PFO} [GeV]", OUTPUT_MET_PFO, {}, kOrange + 1, 2);
-
-    std::vector<std::pair<double, std::string>> metMarks;
-#if APPLY_MAIN_MET_CUT
-    metMarks.emplace_back(MET_CUT_MIN_GEV, "MET_{min}");
-#endif
-    drawHistogram1D(hMETjet, "cMETjet", "MET_{jet} [GeV]", OUTPUT_MET_JET, metMarks, kViolet, 2);
-
-    // h2D_Mrecoil_vs_MET: вертикальная линия MET > 20 GeV
-    drawHistogram2D(h2D_Mrecoil_vs_MET, "c2D_Mrecoil_vs_MET", "MET_{jet} [GeV]", "M_{recoil} [GeV]",
-                    makeOutputPath("2D_Mrecoil_vs_MET"),
-#if APPLY_MAIN_MET_CUT
-                    MET_CUT_MIN_GEV, -1, "MET_{min}", "");
-#else
-                    -1, -1, "", "");
-#endif
-
-    // h2D_Mrecoil_vs_Pmiss: без активных отборов по этим осям
-    drawHistogram2D(h2D_Mrecoil_vs_Pmiss, "c2D_Mrecoil_vs_Pmiss", "|P_{miss}| [GeV]",
-                    "M_{recoil} [GeV]", makeOutputPath("2D_Mrecoil_vs_Pmiss"));
-
-    // h2D_MET_vs_Pmiss: вертикальная линия MET > 20 GeV (ось Y здесь MET)
-    drawHistogram2D(h2D_MET_vs_Pmiss, "c2D_MET_vs_Pmiss", "|P_{miss}| [GeV]", "MET_{jet} [GeV]",
-                    makeOutputPath("2D_MET_vs_Pmiss"),
-#if APPLY_MAIN_MET_CUT
-                    -1, MET_CUT_MIN_GEV, "", "MET_{min}");
-#else
-                    -1, -1, "", "");
-#endif
-
-    // h2D_Mjj_vs_MET: вертикальная линия MET > 20 GeV
-    drawHistogram2D(h2D_Mjj_vs_MET, "c2D_Mjj_vs_MET", "MET_{jet} [GeV]", "M_{jj} [GeV]",
-                    makeOutputPath("2D_Mjj_vs_MET"),
-#if APPLY_MAIN_MET_CUT
-                    MET_CUT_MIN_GEV, -1, "MET_{min}", "");
-#else
-                    -1, -1, "", "");
-#endif
-
-    // h2D_Mjj_vs_Pmiss: без активных отборов по этим осям
-    drawHistogram2D(h2D_Mjj_vs_Pmiss, "c2D_Mjj_vs_Pmiss", "|P_{miss}| [GeV]", "M_{jj} [GeV]",
-                    makeOutputPath("2D_Mjj_vs_Pmiss"));
-
-    // h2D_CosThetaZ_vs_CosThetaPmiss: горизонтальные линии |cosθ_Z| < 0.98
-    drawHistogram2D(h2D_CosThetaZ_vs_CosThetaPmiss, "c2D_CosThetaZ_vs_CosThetaPmiss",
-                    "cos#theta_{miss}", "cos#theta_{Z}",
-                    makeOutputPath("2D_CosThetaZ_vs_CosThetaPmiss"),
-#if APPLY_MAIN_COS_THETA_Z_CUT
-                    -1, COS_THETA_Z_CUT, "", "|cos#theta|^{cut}");
-#else
-                    -1, -1, "", "");
-#endif
-
-    // Остальные гистограммы без линий отборов
-    drawHistogram1D(hPmissMag, "cPmissMag", "|P_{miss}| [GeV]", OUTPUT_PMISS_MAG, {}, kOrange, 2);
-    drawHistogram1D(hCosThetaPmiss, "cCosThetaPmiss", "cos#theta_{miss}", OUTPUT_COS_THETA_PMISS,
-                    {}, kMagenta, 2);
-    drawHistogram1D(hDijetEnergy, "cDijetEnergy", "E_{jj} [GeV]", makeOutputPath("dijet_energy"),
-                    {}, kAzure + 1, 2);
-    drawHistogram1D(hDeltaTheta, "cDeltaTheta", "#Delta#theta [rad]",
-                    makeOutputPath("deltaTheta_jets"), {}, kOrange + 1, 2);
-
-    drawHistogram1D(hDeltaPhi, "cDeltaPhi", "#Delta#phi [rad]", makeOutputPath("deltaPhi_jets"), {},
-                    kGreen + 2, 2);
-
-    // Очистка памяти
-    delete hInvMass;
-    delete hRecoilMass;
-    delete h2D_Correlation;
-    delete hCosThetaZ;
-    delete hDeltaR;
-    delete hCosThetaJet;
-    delete hMETpfo;
-    delete hMETjet;
-    delete hPmissMag;
-    delete hCosThetaPmiss;
-    delete h2D_Mrecoil_vs_MET;
-    delete h2D_Mrecoil_vs_Pmiss;
-    delete h2D_MET_vs_Pmiss;
-    delete h2D_Mjj_vs_MET;
-    delete h2D_Mjj_vs_Pmiss;
-    delete h2D_CosThetaZ_vs_CosThetaPmiss;
-    delete hDijetEnergy;
-    delete hDeltaTheta;
-    delete hDeltaPhi;
-    inputFile->Close();
-    delete inputFile;
-
-    std::cout << "\nГотово. Результаты сохранены в: " << fs::absolute(processOutputDir)
-              << std::endl;
     return 0;
 }

@@ -45,30 +45,30 @@ const double PHOTON_ISO_COS_CONE_ANGLE = 0.985;    // cosConeAngle для фот
 
 // --- 6. Кат на MET (Missing Transverse Energy) ---
 #define APPLY_MAIN_MET_CUT true
-const double MET_CUT_MIN_GEV = 20.0;
+const double MET_CUT_MIN_GEV = 30.0;
 const double MET_CUT_MAX_GEV = 60.0;
 
 // --- 7. Кат на Pmiss ---
-#define APPLY_MAIN_PMISS_CUT false
-const double PMISS_CUT_MIN_GEV = 30.0;
-const double PMISS_CUT_MAX_GEV = 70.0;
+#define APPLY_MAIN_PMISS_CUT true
+const double PMISS_CUT_MIN_GEV = 40.0;
+const double PMISS_CUT_MAX_GEV = 60.0;
 
 // --- 8. Окно инвариантной массы диджета (ГэВ) ---
-#define APPLY_MAIN_DIJET_MASS_WINDOW false
-#define DIJET_MASS_WINDOW_MIN_GEV 75.0
-#define DIJET_MASS_WINDOW_MAX_GEV 105.0
+#define APPLY_MAIN_DIJET_MASS_WINDOW true
+#define DIJET_MASS_WINDOW_MIN_GEV 78.0
+#define DIJET_MASS_WINDOW_MAX_GEV 100.0
 
 // --- 9. Окно массы отдачи (ГэВ) ---
-#define APPLY_MAIN_RECOIL_MASS_WINDOW false
-#define RECOIL_MASS_WINDOW_MIN_GEV 105.0
-#define RECOIL_MASS_WINDOW_MAX_GEV 145.0
+#define APPLY_MAIN_RECOIL_MASS_WINDOW true
+#define RECOIL_MASS_WINDOW_MIN_GEV 100.0
+#define RECOIL_MASS_WINDOW_MAX_GEV 165.0
 
 // --- 10. Кат на полярный угол системы двух джетов ---
 #define APPLY_MAIN_COS_THETA_Z_CUT true
 const double COS_THETA_Z_CUT = 0.7;
 
 // --- 11. Эллиптический кат на плоскости M_jj vs M_recoil ---
-#define APPLY_MAIN_ELLIPSE_CUT true
+#define APPLY_MAIN_ELLIPSE_CUT false
 // Параметры эллипса: ((x-x₀)cosθ + (y-y₀)sinθ)²/a² + (-(x-x₀)sinθ + (y-y₀)cosθ)²/b² ≤ 1
 const double ELLIPSE_CX_GEV = 85.0;  // Центр по M_inv (ГэВ)
 const double ELLIPSE_CY_GEV = 132.5; // Центр по M_recoil (ГэВ)
@@ -99,6 +99,10 @@ const double MASS_MAX_GEV = 250.0;
 const int RECOIL_BINS = 200;
 const double RECOIL_MIN_GEV = 0.0;
 const double RECOIL_MAX_GEV = 250.0;
+
+const int RECOIL_STACK_BINS = 70;
+const double RECOIL_STACK_MIN_GEV = RECOIL_MASS_WINDOW_MIN_GEV;
+const double RECOIL_STACK_MAX_GEV = RECOIL_MASS_WINDOW_MAX_GEV;
 
 // Параметры для гистограмм угловых распределений
 const int COS_THETA_Z_BINS = 100;
@@ -151,7 +155,7 @@ const double DIJET_ENERGY_MAX_GEV = 300.0;
 
 const std::string OUTPUT_BASE_DIR = "../pdf_results";
 
-const int LOG_INTERVAL_EVENTS = 1000;
+const int LOG_INTERVAL_EVENTS = 100000;
 const bool LOG_PERCENTAGE = true;
 const bool PRINT_CUT_STATISTICS = true;
 
@@ -315,6 +319,53 @@ struct IsoElectronStats {
                   << std::endl;
         std::cout << "──────────────────────────────────────────" << std::endl;
     }
+};
+
+// =============================================================================
+// НАСТРОЙКИ ДЛЯ МНОГОФАЙЛОВОГО АНАЛИЗА И СТЕКА
+// =============================================================================
+
+const double LUMINOSITY_FB1 = 5050.0;
+
+// Структура для описания процесса
+struct ProcessInfo {
+    std::string legendName;
+    double weight = 1.0;
+    Color_t color = kBlack;
+    int fillStyle = 1001;
+
+    // Конструктор для удобной инициализации
+    ProcessInfo(std::string leg = "", double w = 1.0, Color_t c = kBlack, int fs = 1001)
+        : legendName(std::move(leg)), weight(w), color(c), fillStyle(fs) {}
+};
+
+// База весов и стилей по имени файла
+std::map<std::string, ProcessInfo> getProcessDatabase() {
+    std::map<std::string, ProcessInfo> db;
+
+    db["merged_E240_qqHX.root"] = ProcessInfo{"qqHX", 0.8111, kRed - 3, 1001};
+    db["merged_E240_qq.root"] = ProcessInfo{"qq", 513.7456, kGray + 2, 1001};
+    db["merged_E240_4f_sw_sl0qq.root"] = ProcessInfo{"4f_sw_sl0qq", 32.8556, kAzure - 4, 1001};
+    db["merged_E240_4f_sze_sl0uu.root"] = ProcessInfo{"4f_sze_sl0uu", 4.1155, kGreen + 2, 1001};
+    db["merged_E240_4f_sznu_sl0nu_up.root"] =
+        ProcessInfo{"4f_sznu_sl0nu_up", 1.8633, kOrange - 3, 1001};
+    db["merged_E240_4f_ww_h0cuxx.root"] = ProcessInfo{"4f_ww_h0cuxx", 47.6774, kMagenta - 2, 1001};
+    db["merged_E240_4f_zz_h0dtdt.root"] = ProcessInfo{"4f_zz_h0dtdt", 6.4182, kCyan + 1, 1001};
+    db["merged_E240_qqHinvi.root"] = ProcessInfo{"qqHinvi (signal)", 0.0080, kRed + 1, 3005};
+
+    return db;
+}
+
+// Фиксированный порядок процессов в стеке: от фона к сигналу
+const std::vector<std::string> RECOIL_STACK_ORDER = {
+    "E240_4f_sznu_sl0nu_up", // nunuZ
+    "E240_4f_sw_sl0qq",      // sw
+    "E240_4f_ww_h0cuxx",     // ww
+    "E240_4f_sze_sl0uu",     // sze
+    "E240_4f_zz_h0dtdt",     // zz
+    "E240_qq",               // qq background
+    "E240_qqHX",             // qqHX
+    "E240_qqHinvi"           // signal, всегда последним
 };
 
 #endif // ZH_INVISIBLE_ANALYSIS_H
