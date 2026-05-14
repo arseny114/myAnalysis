@@ -113,6 +113,15 @@ const int COS_THETA_JET_BINS = 100;
 const double COS_THETA_JET_MIN = -1.0;
 const double COS_THETA_JET_MAX = 1.0;
 
+// Параметры для угловых распределений разниц между джетами
+const int DELTA_THETA_BINS = 100;
+const double DELTA_THETA_MIN = 0.0;
+const double DELTA_THETA_MAX = M_PI;
+
+const int DELTA_PHI_BINS = 100;
+const double DELTA_PHI_MIN = 0.0;
+const double DELTA_PHI_MAX = M_PI;
+
 // Параметры для гистограмм потерянной поперечной энергии
 const int MET_PFO_BINS = 100;
 const double MET_PFO_MIN = 0.0;
@@ -130,6 +139,11 @@ const double PMISS_MAX_GEV = 150.0;
 const int COS_THETA_PMISS_BINS = 100;
 const double COS_THETA_PMISS_MIN = -1.0;
 const double COS_THETA_PMISS_MAX = 1.0;
+
+// Параметры для гистограммы энергии диджета
+const int DIJET_ENERGY_BINS = 200;
+const double DIJET_ENERGY_MIN_GEV = 0.0;
+const double DIJET_ENERGY_MAX_GEV = 300.0;
 
 // =============================================================================
 // НАСТРОЙКИ ВЫВОДА И ЛОГИРОВАНИЯ

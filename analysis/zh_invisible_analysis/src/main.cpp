@@ -652,6 +652,13 @@ int main(int argc, char *argv[]) {
     TH1F *hCosThetaJet = new TH1F("hCosThetaJet", "cos#theta of Jets;cos#theta;Events",
                                   COS_THETA_JET_BINS, COS_THETA_JET_MIN, COS_THETA_JET_MAX);
 
+    TH1F *hDeltaTheta =
+        new TH1F("hDeltaTheta", "#Delta#theta between two jets;#Delta#theta [rad];Events",
+                 DELTA_THETA_BINS, DELTA_THETA_MIN, DELTA_THETA_MAX);
+
+    TH1F *hDeltaPhi = new TH1F("hDeltaPhi", "#Delta#phi between two jets;#Delta#phi [rad];Events",
+                               DELTA_PHI_BINS, DELTA_PHI_MIN, DELTA_PHI_MAX);
+
     TH1F *hMETpfo = new TH1F("hMETpfo", "MET from all PFOs;MET_{PFO} [GeV];Events", MET_PFO_BINS,
                              MET_PFO_MIN, MET_PFO_MAX);
     TH1F *hMETjet = new TH1F("hMETjet", "MET from Two Jets;MET_{jet} [GeV];Events", MET_JET_BINS,
@@ -684,6 +691,8 @@ int main(int argc, char *argv[]) {
                  "cos#theta_{Z} vs cos#theta_{miss};cos#theta_{miss};cos#theta_{Z}",
                  COS_THETA_PMISS_BINS, COS_THETA_PMISS_MIN, COS_THETA_PMISS_MAX, COS_THETA_Z_BINS,
                  COS_THETA_Z_MIN, COS_THETA_Z_MAX);
+    TH1F *hDijetEnergy = new TH1F("hDijetEnergy", "Dijet System Energy;E_{jj} [GeV];Events",
+                                  DIJET_ENERGY_BINS, DIJET_ENERGY_MIN_GEV, DIJET_ENERGY_MAX_GEV);
 
     // Статистики
     CutStatistics stats;
@@ -763,6 +772,15 @@ int main(int argc, char *argv[]) {
         double cosTheta1 = (jet1.P() > 1e-9) ? jet1.Pz() / jet1.P() : 0.0;
         double cosTheta2 = (jet2.P() > 1e-9) ? jet2.Pz() / jet2.P() : 0.0;
         double met_jet = dijet.Pt();
+        double dijetEnergy = dijet.E();
+        double theta1 = calculatePolarAngle(jet1);
+        double theta2 = calculatePolarAngle(jet2);
+        double deltaTheta = std::abs(theta1 - theta2);
+        double phi1 = jet1.Phi();
+        double phi2 = jet2.Phi();
+        double deltaPhi = std::abs(phi1 - phi2);
+        if (deltaPhi > M_PI)
+            deltaPhi = 2 * M_PI - deltaPhi;
 
         double met_pfo = 0.0, pmiss_x = 0.0, pmiss_y = 0.0, pmiss_z = 0.0;
         if (pfoPx && pfoPy && pfoPz) {
@@ -792,6 +810,9 @@ int main(int argc, char *argv[]) {
         hMETjet->Fill(met_jet);
         hPmissMag->Fill(pmiss_mag);
         hCosThetaPmiss->Fill(cosThetaPmiss);
+        hDijetEnergy->Fill(dijetEnergy);
+        hDeltaTheta->Fill(deltaTheta);
+        hDeltaPhi->Fill(deltaPhi);
 
         h2D_Mrecoil_vs_MET->Fill(met_jet, recoilMass);
         h2D_Mrecoil_vs_Pmiss->Fill(pmiss_mag, recoilMass);
@@ -941,6 +962,13 @@ int main(int argc, char *argv[]) {
     drawHistogram1D(hPmissMag, "cPmissMag", "|P_{miss}| [GeV]", OUTPUT_PMISS_MAG, {}, kOrange, 2);
     drawHistogram1D(hCosThetaPmiss, "cCosThetaPmiss", "cos#theta_{miss}", OUTPUT_COS_THETA_PMISS,
                     {}, kMagenta, 2);
+    drawHistogram1D(hDijetEnergy, "cDijetEnergy", "E_{jj} [GeV]", makeOutputPath("dijet_energy"),
+                    {}, kAzure + 1, 2);
+    drawHistogram1D(hDeltaTheta, "cDeltaTheta", "#Delta#theta [rad]",
+                    makeOutputPath("deltaTheta_jets"), {}, kOrange + 1, 2);
+
+    drawHistogram1D(hDeltaPhi, "cDeltaPhi", "#Delta#phi [rad]", makeOutputPath("deltaPhi_jets"), {},
+                    kGreen + 2, 2);
 
     // Очистка памяти
     delete hInvMass;
@@ -959,6 +987,9 @@ int main(int argc, char *argv[]) {
     delete h2D_Mjj_vs_MET;
     delete h2D_Mjj_vs_Pmiss;
     delete h2D_CosThetaZ_vs_CosThetaPmiss;
+    delete hDijetEnergy;
+    delete hDeltaTheta;
+    delete hDeltaPhi;
     inputFile->Close();
     delete inputFile;
 
