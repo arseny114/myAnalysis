@@ -921,6 +921,10 @@ int main(int argc, char *argv[]) {
                 continue;
             stats.afterEllipseCut++;
 
+            if (APPLY_MAIN_DELTA_PHI_CUT && deltaPhi >= DELTA_PHI_CUT_MAX)
+                continue;
+            stats.afterDeltaPhiCut++;
+
             stats.finalSelected++;
 
             // Если событие прошло все отборы, то заполняем взвешенную гистограмму текущего процесса
@@ -1035,6 +1039,13 @@ int main(int argc, char *argv[]) {
                         -1, -1, "", "");
 #endif
 
+        std::vector<std::pair<double, std::string>> deltaPhiMarks;
+#if APPLY_MAIN_DELTA_PHI_CUT
+        deltaPhiMarks.emplace_back(DELTA_PHI_CUT_MAX, "#Delta#phi^{cut}");
+#endif
+        drawHistogram1D(hDeltaPhi, "cDeltaPhi", "#Delta#phi [rad]", makeOutputPath("deltaPhi_jets"),
+                        deltaPhiMarks, kGreen + 2, 2);
+
         // Остальные гистограммы без линий отборов
         drawHistogram1D(hPmissMag, "cPmissMag", "|P_{miss}| [GeV]", OUTPUT_PMISS_MAG, {}, kOrange,
                         2);
@@ -1044,9 +1055,6 @@ int main(int argc, char *argv[]) {
                         makeOutputPath("dijet_energy"), {}, kAzure + 1, 2);
         drawHistogram1D(hDeltaTheta, "cDeltaTheta", "#Delta#theta [rad]",
                         makeOutputPath("deltaTheta_jets"), {}, kOrange + 1, 2);
-
-        drawHistogram1D(hDeltaPhi, "cDeltaPhi", "#Delta#phi [rad]", makeOutputPath("deltaPhi_jets"),
-                        {}, kGreen + 2, 2);
 
         // Очистка памяти
         delete hInvMass;

@@ -76,6 +76,10 @@ const double ELLIPSE_A_GEV = 25.00;  // Большая полуось (ГэВ)
 const double ELLIPSE_B_GEV = 7.0;    // Малая полуось (ГэВ)
 const double ELLIPSE_THETA = -55.0;  // Угол поворота (градусы)
 
+// --- 12. Кат на deltaPhi между джетами ---
+#define APPLY_MAIN_DELTA_PHI_CUT true
+const double DELTA_PHI_CUT_MAX = 3.0;
+
 // =============================================================================
 // ПАРАМЕТРЫ ФИЗИКИ И ГИСТОГРАММ
 // =============================================================================
@@ -198,6 +202,7 @@ struct CutStatistics {
     Long64_t afterCosThetaZCut = 0;
     Long64_t afterRecoilMassWindow = 0;
     Long64_t afterEllipseCut = 0;
+    Long64_t afterDeltaPhiCut = 0;
     Long64_t finalSelected = 0;
 
     void print(const std::string &processName) const {
@@ -286,6 +291,11 @@ struct CutStatistics {
         if (APPLY_MAIN_ELLIPSE_CUT) {
             printRow("  11. Эллиптический cut (Mjj vs Mrecoil):", afterEllipseCut, current);
             current = afterEllipseCut;
+        }
+
+        if (APPLY_MAIN_DELTA_PHI_CUT) {
+            printRow("  12. Cut on #Delta#phi: ", afterDeltaPhiCut, current);
+            current = afterDeltaPhiCut;
         }
 
         // ───────────────── ИТОГ ─────────────────
