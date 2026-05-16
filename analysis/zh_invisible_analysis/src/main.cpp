@@ -472,6 +472,9 @@ void drawRecoilStack(const std::map<std::string, std::pair<TH1F *, ProcessInfo>>
     leg->SetFillColor(0);
     leg->SetBorderSize(1);
 
+    // Вектор из временных копий гистограмм без весов для построения стека
+    std::vector<TH1F *> tempHists;
+
     // Добавляем в стек строго в заданном порядке, но только те процессы, которые реально есть во
     // входных данных
     for (const auto &procName : order) {
@@ -480,19 +483,35 @@ void drawRecoilStack(const std::map<std::string, std::pair<TH1F *, ProcessInfo>>
             TH1F *hist = it->second.first;
             const ProcessInfo &info = it->second.second;
 
-            // Применяем стиль
-            hist->SetFillColor(info.color);
-            hist->SetFillStyle(info.fillStyle);
-            hist->SetMarkerStyle(21);
-            hist->SetMarkerColor(info.color);
-            hist->SetLineWidth(1);
+            // Делаем так чтобы ошибки считались правильно и перевзвешиваем
+            hist->Sumw2();
+            hist->Scale(info.weight);
 
-            stack->Add(hist);
-            leg->AddEntry(hist, info.legendName.c_str(), "f");
+            // Создаем временную гистограмму для добавления в стек. Нам приходится делать такой
+            // костыль потому что в стековой гистограмме ломается заливка, если исходная гистограмма
+            // заполнена с весами. Специально не переносим ошибки из исходной гистограммы, потому
+            // что это ломает заливку
+            TH1F *hForStack = new TH1F(Form("hStack_%s", info.legendName.c_str()), hist->GetTitle(),
+                                       hist->GetNbinsX(), hist->GetXaxis()->GetXmin(),
+                                       hist->GetXaxis()->GetXmax());
+            // Заполняем временную гистограмму
+            for (int bin = 1; bin <= hist->GetNbinsX(); ++bin) {
+                hForStack->SetBinContent(bin, hist->GetBinContent(bin));
+            }
+            tempHists.push_back(hForStack); // Сохраняем чтобы потом почистить
+
+            // Применяем стиль и добавляем в стек
+            hForStack->SetFillColor(info.color);
+            hForStack->SetFillStyle(info.fillStyle);
+            hForStack->SetMarkerStyle(21);
+            hForStack->SetMarkerColor(info.color);
+            hForStack->SetLineWidth(1);
+            stack->Add(hForStack);
+            leg->AddEntry(hForStack, info.legendName.c_str(), "f");
         }
     }
 
-    stack->Draw("HIST");
+    stack->Draw();
     stack->GetXaxis()->SetTitle("M_{recoil} [GeV]");
     stack->GetYaxis()->SetTitle("Expected events after selection");
     stack->GetXaxis()->SetRangeUser(RECOIL_STACK_MIN_GEV, RECOIL_STACK_MAX_GEV);
@@ -503,6 +522,8 @@ void drawRecoilStack(const std::map<std::string, std::pair<TH1F *, ProcessInfo>>
 
     // Очистка
     delete leg;
+    for (auto &h : tempHists)
+        delete h;
     delete stack;
     delete c;
 }
@@ -927,8 +948,9 @@ int main(int argc, char *argv[]) {
 
             stats.finalSelected++;
 
-            // Если событие прошло все отборы, то заполняем взвешенную гистограмму текущего процесса
-            hRecoilMassWeight->Fill(recoilMass, proc.weight);
+            // Если событие прошло все отборы, то заполняем гистограмму текущего процесса. Веса
+            // применим уже при построении стековой гистограммы
+            hRecoilMassWeight->Fill(recoilMass);
         }
 
         // Итоговая статистика
