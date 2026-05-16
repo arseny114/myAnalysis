@@ -48,26 +48,30 @@ const double PHOTON_ISO_COS_CONE_ANGLE = 0.985;    // cosConeAngle для фот
 const double MET_CUT_MIN_GEV = 30.0;
 const double MET_CUT_MAX_GEV = 60.0;
 
-// --- 7. Кат на Pmiss ---
-#define APPLY_MAIN_PMISS_CUT true
-const double PMISS_CUT_MIN_GEV = 40.0;
-const double PMISS_CUT_MAX_GEV = 60.0;
+// --- 7. Кат на deltaPhi между джетами ---
+#define APPLY_MAIN_DELTA_PHI_CUT true
+const double DELTA_PHI_CUT_MAX = 3.0;
 
-// --- 8. Окно инвариантной массы диджета (ГэВ) ---
+// --- 8. Кат на полярный угол системы двух джетов ---
+#define APPLY_MAIN_COS_THETA_Z_CUT true
+const double COS_THETA_Z_CUT = 0.7;
+
+// --- 9. Окно инвариантной массы диджета (ГэВ) ---
 #define APPLY_MAIN_DIJET_MASS_WINDOW true
 #define DIJET_MASS_WINDOW_MIN_GEV 78.0
 #define DIJET_MASS_WINDOW_MAX_GEV 100.0
 
-// --- 9. Окно массы отдачи (ГэВ) ---
-#define APPLY_MAIN_RECOIL_MASS_WINDOW true
+// --- 10. Кат на Pmiss ---
+#define APPLY_MAIN_PMISS_CUT true
+const double PMISS_CUT_MIN_GEV = 40.0;
+const double PMISS_CUT_MAX_GEV = 60.0;
+
+// --- 11. Окно массы отдачи (ГэВ) ---
+#define APPLY_MAIN_RECOIL_MASS_WINDOW false
 #define RECOIL_MASS_WINDOW_MIN_GEV 100.0
 #define RECOIL_MASS_WINDOW_MAX_GEV 165.0
 
-// --- 10. Кат на полярный угол системы двух джетов ---
-#define APPLY_MAIN_COS_THETA_Z_CUT true
-const double COS_THETA_Z_CUT = 0.7;
-
-// --- 11. Эллиптический кат на плоскости M_jj vs M_recoil ---
+// --- 12. Эллиптический кат на плоскости M_jj vs M_recoil ---
 #define APPLY_MAIN_ELLIPSE_CUT false
 // Параметры эллипса: ((x-x₀)cosθ + (y-y₀)sinθ)²/a² + (-(x-x₀)sinθ + (y-y₀)cosθ)²/b² ≤ 1
 const double ELLIPSE_CX_GEV = 85.0;  // Центр по M_inv (ГэВ)
@@ -75,10 +79,6 @@ const double ELLIPSE_CY_GEV = 132.5; // Центр по M_recoil (ГэВ)
 const double ELLIPSE_A_GEV = 25.00;  // Большая полуось (ГэВ)
 const double ELLIPSE_B_GEV = 7.0;    // Малая полуось (ГэВ)
 const double ELLIPSE_THETA = -55.0;  // Угол поворота (градусы)
-
-// --- 12. Кат на deltaPhi между джетами ---
-#define APPLY_MAIN_DELTA_PHI_CUT true
-const double DELTA_PHI_CUT_MAX = 3.0;
 
 // =============================================================================
 // ПАРАМЕТРЫ ФИЗИКИ И ГИСТОГРАММ
@@ -197,12 +197,12 @@ struct CutStatistics {
 
     // Основные отборы
     Long64_t afterMetCut = 0;
-    Long64_t afterPmissCut = 0;
-    Long64_t afterDijetMassWindow = 0;
+    Long64_t afterDeltaPhiCut = 0;
     Long64_t afterCosThetaZCut = 0;
+    Long64_t afterDijetMassWindow = 0;
+    Long64_t afterPmissCut = 0;
     Long64_t afterRecoilMassWindow = 0;
     Long64_t afterEllipseCut = 0;
-    Long64_t afterDeltaPhiCut = 0;
     Long64_t finalSelected = 0;
 
     void print(const std::string &processName) const {
@@ -235,27 +235,27 @@ struct CutStatistics {
         Long64_t current = totalEvents;
 
         if (APPLY_PRE_LEPTON_VETO) {
-            printRow("  1. Veto на изолированный лептон:", afterPreLeptonVeto, current);
+            printRow("Veto на изолированный лептон:", afterPreLeptonVeto, current);
             current = afterPreLeptonVeto;
         }
 
         if (APPLY_PRE_HIGH_E_PHOTON_VETO) {
-            printRow("  2. Veto на энергичный фотон (>30 GeV):", afterPreHighEPhotonVeto, current);
+            printRow("Veto на энергичный фотон (>30 GeV):", afterPreHighEPhotonVeto, current);
             current = afterPreHighEPhotonVeto;
         }
 
         if (APPLY_PRE_ISOLATED_PHOTON_VETO) {
-            printRow("  3. Veto на изолированный фотон:", afterPreIsoPhotonVeto, current);
+            printRow("Veto на изолированный фотон:", afterPreIsoPhotonVeto, current);
             current = afterPreIsoPhotonVeto;
         }
 
         if (APPLY_PRE_TWO_JETS_REQUIREMENT) {
-            printRow("  4. Требование ровно 2 джетов:", afterPreJetCount, current);
+            printRow("Требование ровно 2 джетов:", afterPreJetCount, current);
             current = afterPreJetCount;
         }
 
         if (APPLY_PRE_CONSTITUENTS_REQUIREMENT) {
-            printRow("  5. Требование >= 6 конституентов/джет:", afterPreConstituents, current);
+            printRow("Требование >= 6 конституентов/джет:", afterPreConstituents, current);
             current = afterPreConstituents;
         }
 
@@ -264,38 +264,38 @@ struct CutStatistics {
         std::cout << "ОСНОВНЫЕ ОТБОРЫ:\n" << sepNarrow << "\n";
 
         if (APPLY_MAIN_MET_CUT) {
-            printRow("  6. MET cut:", afterMetCut, current);
+            printRow("MET cut:", afterMetCut, current);
             current = afterMetCut;
         }
 
-        if (APPLY_MAIN_PMISS_CUT) {
-            printRow("  6. PMISS cut:", afterPmissCut, current);
-            current = afterPmissCut;
-        }
-
-        if (APPLY_MAIN_DIJET_MASS_WINDOW) {
-            printRow("  8. Окно массы диджета:", afterDijetMassWindow, current);
-            current = afterDijetMassWindow;
+        if (APPLY_MAIN_DELTA_PHI_CUT) {
+            printRow("Cut on #Delta#phi: ", afterDeltaPhiCut, current);
+            current = afterDeltaPhiCut;
         }
 
         if (APPLY_MAIN_COS_THETA_Z_CUT) {
-            printRow("  9. |cos#theta_{Z}| < 0.98:", afterCosThetaZCut, current);
+            printRow("|cos#theta_{Z}:", afterCosThetaZCut, current);
             current = afterCosThetaZCut;
         }
 
+        if (APPLY_MAIN_DIJET_MASS_WINDOW) {
+            printRow("Окно массы диджета:", afterDijetMassWindow, current);
+            current = afterDijetMassWindow;
+        }
+
+        if (APPLY_MAIN_PMISS_CUT) {
+            printRow("PMISS cut:", afterPmissCut, current);
+            current = afterPmissCut;
+        }
+
         if (APPLY_MAIN_RECOIL_MASS_WINDOW) {
-            printRow("  10. Окно массы отдачи:", afterRecoilMassWindow, current);
+            printRow("Окно массы отдачи:", afterRecoilMassWindow, current);
             current = afterRecoilMassWindow;
         }
 
         if (APPLY_MAIN_ELLIPSE_CUT) {
-            printRow("  11. Эллиптический cut (Mjj vs Mrecoil):", afterEllipseCut, current);
+            printRow("Эллиптический cut (Mjj vs Mrecoil):", afterEllipseCut, current);
             current = afterEllipseCut;
-        }
-
-        if (APPLY_MAIN_DELTA_PHI_CUT) {
-            printRow("  12. Cut on #Delta#phi: ", afterDeltaPhiCut, current);
-            current = afterDeltaPhiCut;
         }
 
         // ───────────────── ИТОГ ─────────────────

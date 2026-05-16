@@ -917,19 +917,23 @@ int main(int argc, char *argv[]) {
                 continue;
             stats.afterMetCut++;
 
-            if (APPLY_MAIN_PMISS_CUT &&
-                (pmiss_mag < PMISS_CUT_MIN_GEV || pmiss_mag > PMISS_CUT_MAX_GEV))
+            if (APPLY_MAIN_DELTA_PHI_CUT && deltaPhi >= DELTA_PHI_CUT_MAX)
                 continue;
-            stats.afterPmissCut++;
+            stats.afterDeltaPhiCut++;
+
+            if (APPLY_MAIN_COS_THETA_Z_CUT && std::abs(cosThetaZ) >= COS_THETA_Z_CUT)
+                continue;
+            stats.afterCosThetaZCut++;
 
             if (APPLY_MAIN_DIJET_MASS_WINDOW &&
                 (invMass < DIJET_MASS_WINDOW_MIN_GEV || invMass > DIJET_MASS_WINDOW_MAX_GEV))
                 continue;
             stats.afterDijetMassWindow++;
 
-            if (APPLY_MAIN_COS_THETA_Z_CUT && std::abs(cosThetaZ) >= COS_THETA_Z_CUT)
+            if (APPLY_MAIN_PMISS_CUT &&
+                (pmiss_mag < PMISS_CUT_MIN_GEV || pmiss_mag > PMISS_CUT_MAX_GEV))
                 continue;
-            stats.afterCosThetaZCut++;
+            stats.afterPmissCut++;
 
             if (APPLY_MAIN_RECOIL_MASS_WINDOW && (recoilMass < RECOIL_MASS_WINDOW_MIN_GEV ||
                                                   recoilMass > RECOIL_MASS_WINDOW_MAX_GEV))
@@ -941,10 +945,6 @@ int main(int argc, char *argv[]) {
                                  ELLIPSE_B_GEV, ELLIPSE_THETA))
                 continue;
             stats.afterEllipseCut++;
-
-            if (APPLY_MAIN_DELTA_PHI_CUT && deltaPhi >= DELTA_PHI_CUT_MAX)
-                continue;
-            stats.afterDeltaPhiCut++;
 
             stats.finalSelected++;
 
