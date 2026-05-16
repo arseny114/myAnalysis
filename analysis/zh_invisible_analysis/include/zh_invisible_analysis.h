@@ -104,12 +104,6 @@ const int RECOIL_BINS = 200;
 const double RECOIL_MIN_GEV = 0.0;
 const double RECOIL_MAX_GEV = 250.0;
 
-const int RECOIL_STACK_BINS = 70;
-const double RECOIL_STACK_MIN_GEV = RECOIL_MASS_WINDOW_MIN_GEV;
-const double RECOIL_STACK_MAX_GEV = RECOIL_MASS_WINDOW_MAX_GEV;
-const double RECOIL_STACK_MIN_Y = 1e-2;
-const double RECOIL_STACK_MAX_Y = 30000;
-
 // Параметры для гистограмм угловых распределений
 const int COS_THETA_Z_BINS = 100;
 const double COS_THETA_Z_MIN = -1.0;
@@ -339,6 +333,16 @@ struct IsoElectronStats {
 
 const double LUMINOSITY_FB1 = 5050.0;
 
+const int RECOIL_STACK_BINS = 70;
+const double RECOIL_STACK_MIN_GEV = RECOIL_MASS_WINDOW_MIN_GEV;
+const double RECOIL_STACK_MAX_GEV = RECOIL_MASS_WINDOW_MAX_GEV;
+const double RECOIL_STACK_MIN_Y = 1e-2;
+const double RECOIL_STACK_MAX_Y = 30000;
+
+const bool RECOIL_STACK_LOG_Y = true;
+
+const double RECOIL_STACK_SIGNAL_MULTIPLIER = 20;
+
 // Структура для описания процесса
 struct ProcessInfo {
     std::string legendName;
@@ -363,7 +367,8 @@ std::map<std::string, ProcessInfo> getProcessDatabase() {
         ProcessInfo{"4f_sznu_sl0nu_up", 1.8633, kOrange - 3, 1001};
     db["merged_E240_4f_ww_h0cuxx.root"] = ProcessInfo{"4f_ww_h0cuxx", 47.6774, kMagenta - 2, 1001};
     db["merged_E240_4f_zz_h0dtdt.root"] = ProcessInfo{"4f_zz_h0dtdt", 6.4182, kCyan + 1, 1001};
-    db["merged_E240_qqHinvi.root"] = ProcessInfo{"qqHinvi (signal)", 0.0080, kRed + 1, 3005};
+    db["merged_E240_qqHinvi.root"] =
+        ProcessInfo{"qqHinvi (signal)", 0.0080 * RECOIL_STACK_SIGNAL_MULTIPLIER, kRed + 1, 3005};
 
     return db;
 }
