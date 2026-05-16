@@ -63,8 +63,8 @@ const double COS_THETA_Z_CUT = 0.7;
 
 // --- 10. Кат на Pmiss ---
 #define APPLY_MAIN_PMISS_CUT true
-const double PMISS_CUT_MIN_GEV = 40.0;
-const double PMISS_CUT_MAX_GEV = 60.0;
+const double PMISS_CUT_MIN_GEV = 30.0;
+const double PMISS_CUT_MAX_GEV = 70.0;
 
 // --- 11. Окно массы отдачи (ГэВ) ---
 #define APPLY_MAIN_RECOIL_MASS_WINDOW false
