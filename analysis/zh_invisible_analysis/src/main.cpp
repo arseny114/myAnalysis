@@ -461,10 +461,10 @@ void drawRecoilStack(const std::map<std::string, std::pair<TH1F *, ProcessInfo>>
                      const std::vector<std::string> &order, const std::string &outputFile) {
 
     TCanvas *c = new TCanvas("cRecoilStack", "Recoil Mass Stack", 1000, 700);
-    c->SetLogy(true);
     c->SetLeftMargin(0.13);
     c->SetRightMargin(0.05);
     c->SetBottomMargin(0.12);
+    c->SetLogy(true);
 
     THStack *stack =
         new THStack("recoilStack", "Recoil Mass Distribution;M_{recoil} [GeV];Expected events");
@@ -524,6 +524,8 @@ void drawRecoilStack(const std::map<std::string, std::pair<TH1F *, ProcessInfo>>
         }
     }
 
+    stack->SetMinimum(RECOIL_STACK_MIN_Y);
+    stack->SetMaximum(RECOIL_STACK_MAX_Y);
     stack->Draw();
     stack->GetXaxis()->SetTitle("M_{recoil} [GeV]");
     stack->GetYaxis()->SetTitle("Expected events after selection");

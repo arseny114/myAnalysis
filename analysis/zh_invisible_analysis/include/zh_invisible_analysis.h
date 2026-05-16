@@ -107,6 +107,8 @@ const double RECOIL_MAX_GEV = 250.0;
 const int RECOIL_STACK_BINS = 70;
 const double RECOIL_STACK_MIN_GEV = RECOIL_MASS_WINDOW_MIN_GEV;
 const double RECOIL_STACK_MAX_GEV = RECOIL_MASS_WINDOW_MAX_GEV;
+const double RECOIL_STACK_MIN_Y = 1e-2;
+const double RECOIL_STACK_MAX_Y = 30000;
 
 // Параметры для гистограмм угловых распределений
 const int COS_THETA_Z_BINS = 100;
