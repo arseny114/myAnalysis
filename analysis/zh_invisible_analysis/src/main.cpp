@@ -472,6 +472,9 @@ void drawRecoilStack(const std::map<std::string, std::pair<TH1F *, ProcessInfo>>
     leg->SetFillColor(0);
     leg->SetBorderSize(1);
 
+    // Для отрисовки сигнала от низа стековой гистограммы
+    TH1F *signalHistBottom = nullptr;
+
     // Вектор из временных копий гистограмм без весов для построения стека
     std::vector<TH1F *> tempHists;
 
@@ -508,6 +511,16 @@ void drawRecoilStack(const std::map<std::string, std::pair<TH1F *, ProcessInfo>>
             hForStack->SetLineWidth(1);
             stack->Add(hForStack);
             leg->AddEntry(hForStack, info.legendName.c_str(), "f");
+
+            // Клонируем сигнал чтобы отрисовать его от низа стековой гистограммы и настраиваем
+            // параметры отображения
+            if (info.legendName.find("signal") != std::string::npos) {
+                signalHistBottom = (TH1F *)hForStack->Clone("signal_bottom");
+                signalHistBottom->SetFillStyle(0);
+                signalHistBottom->SetLineWidth(3);
+                signalHistBottom->SetLineColor(info.color);
+                leg->AddEntry(signalHistBottom, "Signal (overlay)", "L");
+            }
         }
     }
 
@@ -515,6 +528,11 @@ void drawRecoilStack(const std::map<std::string, std::pair<TH1F *, ProcessInfo>>
     stack->GetXaxis()->SetTitle("M_{recoil} [GeV]");
     stack->GetYaxis()->SetTitle("Expected events after selection");
     stack->GetXaxis()->SetRangeUser(RECOIL_STACK_MIN_GEV, RECOIL_STACK_MAX_GEV);
+
+    // Рисуем оверлей сигнала, если он есть во входных данных
+    if (signalHistBottom) {
+        signalHistBottom->Draw("HIST SAME");
+    }
 
     leg->Draw();
     c->SaveAs(outputFile.c_str());
@@ -524,6 +542,8 @@ void drawRecoilStack(const std::map<std::string, std::pair<TH1F *, ProcessInfo>>
     delete leg;
     for (auto &h : tempHists)
         delete h;
+    if (signalHistBottom)
+        delete signalHistBottom;
     delete stack;
     delete c;
 }
