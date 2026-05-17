@@ -554,6 +554,76 @@ void drawRecoilStack(const std::map<std::string, std::pair<TH1F *, ProcessInfo>>
     delete c;
 }
 
+// Отрисовка сравнительной гистограммы массы отдачи (qqHX и qqHinvi)
+// Строит график только если оба процесса присутствуют во входных данных
+void drawRecoilComparison(const std::map<std::string, std::pair<TH1F *, ProcessInfo>> &processes,
+                          const std::string &outputFile) {
+    // Ищем процессы по именам, которые возвращает extractProcessName (без merged_ и .root)
+    auto it_qqHX = processes.find("E240_qqHX");
+    auto it_signal = processes.find("E240_qqHinvi");
+
+    if (it_qqHX == processes.end() || it_signal == processes.end())
+        return;
+
+    // Клонируем гистограммы, чтобы не повлиять на стек или другие отрисовки
+    TH1F *hBg = (TH1F *)it_qqHX->second.first->Clone("hCompBg");
+    TH1F *hSig = (TH1F *)it_signal->second.first->Clone("hCompSig");
+
+    // Применяем кастомные веса
+    hBg->Sumw2();
+    hBg->Scale(RECOIL_COMP_W_QQHX);
+
+    hSig->Sumw2();
+    hSig->Scale(RECOIL_COMP_W_SIGNAL);
+
+    TCanvas *c = new TCanvas("cRecoilComp", "Recoil Mass Comparison", 900, 700);
+    c->SetLeftMargin(0.13);
+    c->SetRightMargin(0.05);
+    c->SetBottomMargin(0.12);
+    c->SetLogy(RECOIL_COMP_LOG_Y);
+
+    // Настройки осей
+    if (RECOIL_COMP_LOG_Y) {
+        hBg->SetMinimum(RECOIL_STACK_MIN_Y);
+        hBg->SetMaximum(RECOIL_STACK_MAX_Y);
+    }
+    hBg->GetXaxis()->SetTitle("M_{recoil} [GeV]");
+    hBg->GetYaxis()->SetTitle("Expected events after selection");
+    hBg->GetXaxis()->SetTitleSize(0.045);
+    hBg->GetXaxis()->SetTitleOffset(1.1);
+    hBg->GetYaxis()->SetTitleSize(0.045);
+    hBg->GetYaxis()->SetTitleOffset(1.1);
+    hBg->SetStats(0); // Отключаем стандартное окно статистики
+
+    // Стиль фона (qqHX)
+    hBg->SetFillColor(kGray + 2);
+    hBg->SetLineColor(kBlack);
+    hBg->SetLineWidth(2);
+    hBg->Draw("HIST");
+
+    // Стиль сигнала (qqHinvi)
+    hSig->SetLineColor(kRed + 1);
+    hSig->SetLineWidth(3);
+    hSig->SetLineStyle(kSolid);
+    hSig->Draw("HIST SAME");
+
+    // Легенда
+    TLegend *leg = new TLegend(0.60, 0.70, 0.88, 0.88);
+    leg->SetFillColor(0);
+    leg->SetBorderSize(1);
+    leg->AddEntry(hBg, "qqHX (Signal + Background)", "F");
+    leg->AddEntry(hSig, "qqHinvi (Signal)", "L");
+    leg->Draw();
+
+    c->SaveAs(outputFile.c_str());
+
+    // Очистка
+    delete c;
+    delete leg;
+    delete hBg;
+    delete hSig;
+}
+
 // Извлечение имени процесса из пути к файлу
 // Формат файла: merged_E240_qqHX.root
 std::string extractProcessName(const std::string &filepath) {
@@ -1130,6 +1200,11 @@ int main(int argc, char *argv[]) {
         std::cout << "\nГотово. Результаты сохранены в: " << fs::absolute(processOutputDir)
                   << std::endl;
     }
+
+    // Построение сравнительной гистограммы массы отдачи (qqHX и qqHinvi)
+    std::string compOutput =
+        (fs::path(outputBaseDir) / "recoil_comparison_qqHX_vs_signal.pdf").string();
+    drawRecoilComparison(processRecoilHists, compOutput);
 
     // Построение стек гистограммы
     std::string stackOutput = (fs::path(outputBaseDir) / "recoil_stack_weighted.pdf").string();
