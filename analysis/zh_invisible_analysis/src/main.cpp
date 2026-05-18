@@ -596,16 +596,16 @@ void drawRecoilComparison(const std::map<std::string, std::pair<TH1F *, ProcessI
     hBg->SetStats(0); // Отключаем стандартное окно статистики
 
     // Стиль фона (qqHX)
-    hBg->SetFillColor(kGray + 2);
+    hBg->SetFillColor(kYellow);
     hBg->SetLineColor(kBlack);
     hBg->SetLineWidth(2);
-    hBg->Draw("HIST");
+    hBg->Draw("HIST E");
 
     // Стиль сигнала (qqHinvi)
     hSig->SetLineColor(kRed + 1);
     hSig->SetLineWidth(3);
     hSig->SetLineStyle(kSolid);
-    hSig->Draw("HIST SAME");
+    hSig->Draw("HIST E SAME");
 
     // Легенда
     TLegend *leg = new TLegend(0.60, 0.70, 0.88, 0.88);
