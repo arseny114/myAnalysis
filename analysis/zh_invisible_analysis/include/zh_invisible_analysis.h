@@ -160,7 +160,7 @@ const bool RECOIL_COMP_LOG_Y = false;
 // НАСТРОЙКИ ВЫВОДА И ЛОГИРОВАНИЯ
 // =============================================================================
 
-const std::string OUTPUT_BASE_DIR = "../results";
+const std::string OUTPUT_BASE_DIR = "../pdf_results";
 
 const int LOG_INTERVAL_EVENTS = 100000;
 const bool LOG_PERCENTAGE = true;

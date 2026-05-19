@@ -654,7 +654,7 @@ void printUsage(const char *progName) {
               << "Опции:\n"
               << "  -h, --help              Показать эту справку\n"
               << "  -o, --output-dir DIR    Базовая директория результатов (по умолчанию: "
-                 "../results)\n"
+                 "../pdf_results)\n"
               << "\nПример:\n"
               << "  " << progName
               << " merged_E240_qqHX.root merged_E240_qq.root merged_E240_qqHinvi.root\n";
@@ -878,38 +878,6 @@ int main(int argc, char *argv[]) {
         hRecoilMassWeight->SetDirectory(0); // Отключаем автоматическое удаление при закрытии файла
         processRecoilHists[processName] = {hRecoilMassWeight, proc};
 
-        // Настройки выходных деревьев
-
-        // Переменные для ветвей
-        double var_Mrecoil = 0.0, var_Mjj = 0.0, var_MET = 0.0;
-        double var_Pmiss = 0.0, var_deltaPhi = 0.0, var_cosTheta = 0.0;
-
-        // Формируем имена выходных файлов внутри директории процесса
-        std::string preTreeFile =
-            (processOutputDir / ("tree_precuts_" + processName + ".root")).string();
-        std::string mainTreeFile =
-            (processOutputDir / ("tree_maincuts_" + processName + ".root")).string();
-
-        // Дерево для событий, прошедших предотборы
-        TFile *fPre = new TFile(preTreeFile.c_str(), "RECREATE");
-        TTree *tPre = new TTree("PreCutsTree", "Events after pre-cuts");
-        tPre->Branch("Mrecoil", &var_Mrecoil, "Mrecoil/D");
-        tPre->Branch("Mjj", &var_Mjj, "Mjj/D");
-        tPre->Branch("MET", &var_MET, "MET/D");
-        tPre->Branch("Pmiss", &var_Pmiss, "Pmiss/D");
-        tPre->Branch("deltaPhi", &var_deltaPhi, "deltaPhi/D");
-        tPre->Branch("cosTheta", &var_cosTheta, "cosTheta/D");
-
-        // Дерево для событий, прошедших основные отборы
-        TFile *fMain = new TFile(mainTreeFile.c_str(), "RECREATE");
-        TTree *tMain = new TTree("MainCutsTree", "Events after main cuts");
-        tMain->Branch("Mrecoil", &var_Mrecoil, "Mrecoil/D");
-        tMain->Branch("Mjj", &var_Mjj, "Mjj/D");
-        tMain->Branch("MET", &var_MET, "MET/D");
-        tMain->Branch("Pmiss", &var_Pmiss, "Pmiss/D");
-        tMain->Branch("deltaPhi", &var_deltaPhi, "deltaPhi/D");
-        tMain->Branch("cosTheta", &var_cosTheta, "cosTheta/D");
-
         // Статистики
         CutStatistics stats;
         IsoElectronStats elecStats;
@@ -1040,15 +1008,6 @@ int main(int argc, char *argv[]) {
             h2D_Mjj_vs_Pmiss->Fill(pmiss_mag, invMass);
             h2D_CosThetaZ_vs_CosThetaPmiss->Fill(cosThetaPmiss, cosThetaZ);
 
-            // Заполнение выходного дерева после предотборов
-            var_Mrecoil = recoilMass;
-            var_Mjj = invMass;
-            var_MET = met_jet;
-            var_Pmiss = pmiss_mag;
-            var_deltaPhi = deltaPhi;
-            var_cosTheta = cosThetaZ;
-            tPre->Fill();
-
             // ==================== ОСНОВНЫЕ ОТБОРЫ ====================
             if (APPLY_MAIN_MET_CUT && (met_jet < MET_CUT_MIN_GEV || met_jet > MET_CUT_MAX_GEV))
                 continue;
@@ -1088,9 +1047,6 @@ int main(int argc, char *argv[]) {
             // Если событие прошло все отборы, то заполняем гистограмму текущего процесса. Веса
             // применим уже при построении стековой гистограммы
             hRecoilMassWeight->Fill(recoilMass);
-
-            // Заполняем дерево после основных отборов
-            tMain->Fill();
         }
 
         // Итоговая статистика
@@ -1219,16 +1175,6 @@ int main(int argc, char *argv[]) {
                         makeOutputPath("deltaTheta_jets"), {}, kOrange + 1, 2);
 
         // Очистка памяти
-        if (fPre) {
-            fPre->Write();
-            fPre->Close();
-            delete fPre;
-        }
-        if (fMain) {
-            fMain->Write();
-            fMain->Close();
-            delete fMain;
-        }
         delete hInvMass;
         delete hRecoilMass;
         delete h2D_Correlation;
