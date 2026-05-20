@@ -374,8 +374,7 @@ std::map<std::string, ProcessInfo> getProcessDatabase() {
         ProcessInfo{"4f_sznu_sl0nu_up", 1.8633, kOrange - 3, 1001};
     db["merged_E240_4f_ww_h0cuxx.root"] = ProcessInfo{"4f_ww_h0cuxx", 47.6774, kMagenta - 2, 1001};
     db["merged_E240_4f_zz_h0dtdt.root"] = ProcessInfo{"4f_zz_h0dtdt", 6.4182, kCyan + 1, 1001};
-    db["merged_E240_qqHinvi.root"] =
-        ProcessInfo{"qqHinvi (signal)", 0.0080 * RECOIL_STACK_SIGNAL_MULTIPLIER, kRed + 1, 3005};
+    db["merged_E240_qqHinvi.root"] = ProcessInfo{"qqHinvi (signal)", 0.0080, kRed + 1, 3005};
 
     return db;
 }
@@ -391,5 +390,31 @@ const std::vector<std::string> RECOIL_STACK_ORDER = {
     "E240_qqHX",             // qqHX
     "E240_qqHinvi"           // signal, всегда последним
 };
+
+// =============================================================================
+// НАСТРОЙКИ ШАБЛОННОГО ФИТА Mrecoil (RooFit)
+// =============================================================================
+// Диапазон фита [ГэВ]
+const double FIT_MRECOIL_MIN = 100.0;
+const double FIT_MRECOIL_MAX = 165.0;
+
+// Параметры RooKeysPdf: адаптивность ядра.
+// Чем больше значение, тем шире ядро и тем более гладкий шаблон.
+const double FIT_KEYSPDF_ADAPTIVITY_BGD = 4.0;
+const double FIT_KEYSPDF_ADAPTIVITY_SIGNAL = 1.0;
+
+// Использовать ли зеркальное отражение ядра на границах диапазона.
+const bool FIT_KEYSPDF_MIRROR = false;
+
+// Доля сигнала в псевдоданных (параметр mu).
+const double FIT_PSEUDO_MU = 5.0;
+
+// Настройки визуализации
+const int FIT_PLOT_BINS = 65;
+const bool FIT_PLOT_LOG_Y = false;
+const double FIT_PLOT_YMAX = 2000.0;
+
+// Имя выходного файла
+const std::string FIT_OUTPUT_FILENAME = "template_fit_recoil.pdf";
 
 #endif // ZH_INVISIBLE_ANALYSIS_H

@@ -16,6 +16,12 @@
 // - 2D распределение: инвариантная масса vs масса отдачи
 // - 2D распределение: E_photon(>PHOTON_ENERGY_CUT_GEV) vs M_recoil
 
+#include <RooAddPdf.h>
+#include <RooDataSet.h>
+#include <RooFitResult.h>
+#include <RooKeysPdf.h>
+#include <RooPlot.h>
+#include <RooRealVar.h>
 #include <TCanvas.h>
 #include <TFile.h>
 #include <TH1F.h>
@@ -38,6 +44,8 @@
 #include <iostream>
 #include <string>
 #include <vector>
+
+using namespace RooFit;
 
 #include "../include/zh_invisible_analysis.h"
 
@@ -488,7 +496,10 @@ void drawRecoilStack(const std::map<std::string, std::pair<TH1F *, ProcessInfo>>
 
             // Делаем так чтобы ошибки считались правильно и перевзвешиваем
             hist->Sumw2();
-            hist->Scale(info.weight);
+            if (info.legendName.find("signal") != std::string::npos)
+                hist->Scale(info.weight * RECOIL_STACK_SIGNAL_MULTIPLIER);
+            else
+                hist->Scale(info.weight);
 
             // Создаем временную гистограмму для добавления в стек. Нам приходится делать такой
             // костыль потому что в стековой гистограмме ломается заливка, если исходная гистограмма
@@ -624,6 +635,440 @@ void drawRecoilComparison(const std::map<std::string, std::pair<TH1F *, ProcessI
     delete hSig;
 }
 
+// =============================================================================
+// ФУНКЦИЯ runMrecoilTemplateFit
+// =============================================================================
+//
+// Выполняет шаблонный фит распределения M_recoil методом расширенного
+// максимума правдоподобия (Extended Maximum Likelihood, EML).
+//
+// ВХОДНЫЕ ДАННЫЕ:
+//   vSignal    - MC-события процесса qqHinvi , пары (M_recoil, вес).
+//   vBkg       - MC-события всех фоновых процессов, пары (M_recoil, вес).
+//   outputPath - путь для сохранения PDF с графиком.
+//
+// АЛГОРИТМ:
+//   1. Строим два шаблона (PDF) через ядерную оценку плотности RooKeysPdf:
+//        fs(x) - форма распределения сигнала
+//        fb(x) - форма распределения фона
+//      Шаблоны нормированы на 1 (это просто формы, не нормировки).
+//
+//   2. Строим псевдоданные. Это смесь фона и сигнала с долей mu:
+//        dsData = vBkg (с весами) + vSignal (с весами × mu)
+//      Суммарный взвешенный интеграл dsData = sumW_B + mu * sumW_S.
+//
+//   3. Фит 1 (нулевая гипотеза H0): фитируем dsData только фоном.
+//      Свободный параметр: nB (число событий фона).
+//      nS зафиксирован = 0. Получаем NLL_b (значение -log(L)).
+//
+//   4. Фит 2 (альтернативная гипотеза H1): фитируем dsData суммой fs+fb.
+//      Свободные параметры: nS и nB. Получаем NLL_sb.
+//
+//   5. Вычисляем статистику:
+//      - Простая оценка: Z_approx = nS / sqrt(nS + nB)
+//      - Отношение правдоподобий: q0 = -2*ln(L_b/L_sb) = 2*(NLL_b - NLL_sb)
+//        По теореме Вилкса при большой статистике q0 ~ χ2(1),
+//        значимость Z_LRT = sqrt(q0) в единицах σ.
+//
+// =============================================================================
+void runMrecoilTemplateFit(const std::vector<std::pair<double, double>> &vSignal,
+                           const std::vector<std::pair<double, double>> &vBkg,
+                           const std::string &outputPath) {
+
+    if (vSignal.empty() || vBkg.empty()) {
+        std::cerr << "[Fit] Ошибка: входные данные пусты!\n";
+        return;
+    }
+
+    std::cout << "\n[Fit] =====================================================\n";
+    std::cout << "[Fit] Запуск шаблонного фита M_recoil\n";
+    std::cout << "[Fit] Сигнальных MC-событий: " << vSignal.size() << "\n";
+    std::cout << "[Fit] Фоновых MC-событий:    " << vBkg.size() << "\n";
+    std::cout << "[Fit] mu (доля сигнала):     " << FIT_PSEUDO_MU << "\n";
+
+    // =========================================================================
+    // ШАГ 1: НАБЛЮДАЕМАЯ ПЕРЕМЕННАЯ
+    // =========================================================================
+    //
+    // RooRealVar описывает физическую переменную, по которой делается фит.
+    // Третий и четвёртый аргументы это диапазон допустимых значений.
+    // События вне диапазона [fitMin, fitMax] будут игнорироваться.
+    RooRealVar Mrecoil("Mrecoil", "M_{recoil} [GeV]", FIT_MRECOIL_MIN, FIT_MRECOIL_MAX);
+
+    // Именованный диапазон fitRange нужен, чтобы явно передавать его в
+    // fitTo() и plotOn().
+    Mrecoil.setRange("fitRange", FIT_MRECOIL_MIN, FIT_MRECOIL_MAX);
+
+    // =========================================================================
+    // ШАГ 2: ШАБЛОННЫЕ ДАТАСЕТЫ (для построения PDF)
+    // =========================================================================
+    //
+    // RooDataSet это контейнер событий для RooFit.
+    // WeightVar(wVar) сообщает RooFit, что wVar хранит статистический вес
+    // каждого события. Внутри RooFit это влияет на нормировку и ошибки.
+    //
+    // wVar должна входить в RooArgSet, переданный конструктору датасета,
+    // иначе RooFit не будет знать о ней при чтении датасета.
+    //
+    // Диапазон wVar выбран с запасом.
+    RooRealVar wVar("eventWeight", "Event weight", 1e-9, 1e9);
+    RooArgSet argSet(Mrecoil, wVar);
+
+    // --- Шаблон сигнала ---
+    // dsSignal используется только для построения формы PDF сигнала fs(x).
+    RooDataSet *dsSignal =
+        new RooDataSet("dsSignal", "Signal template MC", argSet, RooFit::WeightVar(wVar));
+    for (const auto &entry : vSignal) {
+        // entry.first  - значение M_recoil для данного события
+        // entry.second - вес события
+        if (entry.first < FIT_MRECOIL_MIN || entry.first > FIT_MRECOIL_MAX)
+            continue;
+        Mrecoil.setVal(entry.first);
+        dsSignal->add(argSet, entry.second);
+    }
+
+    // --- Шаблон фона ---
+    // dsBkg используется только для построения формы PDF фона fb(x).
+    RooDataSet *dsBkg =
+        new RooDataSet("dsBkg", "Background template MC", argSet, RooFit::WeightVar(wVar));
+    for (const auto &entry : vBkg) {
+        // entry.first  - значение M_recoil для данного события
+        // entry.second - вес события
+        if (entry.first < FIT_MRECOIL_MIN || entry.first > FIT_MRECOIL_MAX)
+            continue;
+        Mrecoil.setVal(entry.first);
+        dsBkg->add(argSet, entry.second);
+    }
+
+    // Суммарные взвешенные числа событий в шаблонах.
+    // sumEntries() с весами возвращает сумму весов всех событий.
+    // Это ожидаемое число событий при данной светимости.
+    double sumW_S = dsSignal->sumEntries();
+    double sumW_B = dsBkg->sumEntries();
+
+    std::cout << "[Fit] sumW_S (ожидаемый сигнал, полный):  " << sumW_S << "\n";
+    std::cout << "[Fit] sumW_B (ожидаемый фон):             " << sumW_B << "\n";
+    std::cout << "[Fit] Инжектируем mu * sumW_S =           " << FIT_PSEUDO_MU * sumW_S
+              << " событий сигнала в псевдоданные\n";
+
+    if (sumW_S <= 0 || sumW_B <= 0) {
+        std::cerr << "[Fit] Ошибка: суммарные веса равны нулю. Проверь входные данные.\n";
+        delete dsSignal;
+        delete dsBkg;
+        return;
+    }
+
+    // =========================================================================
+    // ШАГ 3: ПОСТРОЕНИЕ ШАБЛОНОВ (RooKeysPdf)
+    // =========================================================================
+    //
+    // RooKeysPdf реализует ядерную оценку плотности (Kernel Density Estimation).
+    // Идея: вместо гистограммы каждое событие заменяется гауссовым ядром,
+    // а PDF это сумма всех ядер, нормированная на 1.
+    //
+    // Параметр adaptivity (ρ) управляет шириной ядра:
+    //   h_i = h_0 * (f(x_i))^(-1/2) * rho
+    // где f(x_i) - локальная плотность событий. В плотных областях ядро
+    // уже (не размывает пики), в разреженных шире (не даёт шума).
+    //
+    // MirrorBoth/NoMirror нужен для обработки граничных эффектов:
+    //   NoMirror: ядро может "вытечь" за край диапазона, что привидет к занижению у границ.
+    //   MirrorBoth: добавляет зеркальные копии событий, что корректирует края.
+    auto mirrorOpt = FIT_KEYSPDF_MIRROR ? RooKeysPdf::MirrorBoth : RooKeysPdf::NoMirror;
+
+    RooKeysPdf pdfSignal("pdfSignal", "Signal PDF (fs)", Mrecoil, *dsSignal, mirrorOpt,
+                         FIT_KEYSPDF_ADAPTIVITY_SIGNAL);
+    RooKeysPdf pdfBkg("pdfBkg", "Background PDF (fb)", Mrecoil, *dsBkg, mirrorOpt,
+                      FIT_KEYSPDF_ADAPTIVITY_BGD);
+
+    // Фиксируем диапазон нормировки PDF явно.
+    pdfSignal.setNormRange("fitRange");
+    pdfBkg.setNormRange("fitRange");
+
+    // =========================================================================
+    // ШАГ 4: ПАРАМЕТРЫ НОРМИРОВКИ (число событий)
+    // =========================================================================
+    //
+    // Начальные значения = ожидаемые числа событий из MC.
+    // Для границ не допускаем отрицательных значений. Верхний предел берем с
+    // запасом, чтобы фит не упирался в границу.
+    double expectedNS = FIT_PSEUDO_MU * sumW_S;
+    double expectedNB = sumW_B;
+
+    // Верхняя граница nS: берём максимум из (10 * ожидаемого) и абсолютного минимума 100,
+    // чтобы фит не был зажат при малом ожидаемом сигнале.
+    double nS_max = std::max(10.0 * expectedNS, 100.0);
+    double nB_max = 3.0 * expectedNB;
+
+    RooRealVar nS("nS", "Signal yield", expectedNS, 0.0, nS_max);
+    RooRealVar nB("nB", "Background yield", expectedNB, 0.0, nB_max);
+
+    // =========================================================================
+    // ШАГ 5: КОМБИНИРОВАННАЯ МОДЕЛЬ
+    // =========================================================================
+    //
+    // RooAddPdf с двумя аргументами-нормировками создаёт расширенный PDF:
+    //   model(x) = nS * fs(x) + nB * fb(x)
+    //
+    RooAddPdf model("model", "nS*fs + nB*fb", RooArgList(pdfSignal, pdfBkg), RooArgList(nS, nB));
+    model.setNormRange("fitRange");
+
+    // =========================================================================
+    // ШАГ 6: ПСЕВДОДАННЫЕ
+    // =========================================================================
+    //
+    // Псевдоданные (toy MC) - это то, что в реальном эксперименте было бы
+    // экспериментальными данными. Здесь мы формируем их из MC, инжектируя
+    // известную долю сигнала mu.
+    //
+    // dsData = все фоновые MC события (с весами) + сигнальные MC (с весами × mu)
+    //
+    // Важно: dsData это взвешенный датасет (MC с весами != 1). Поэтому при фите
+    // используем SumW2Error(kTRUE). Это корректирует ковариационную матрицу
+    // по формуле:
+    //   V_corr = H^{-1} * (sum w_i^2 * grad_i * grad_i^T) * H^{-1}
+    // вместо стандартной V = H^{-1}, где H это матрица Гессе NLL.
+    // Без SumW2Error ошибки параметров будут занижены.
+    //
+    RooDataSet *dsData =
+        new RooDataSet("dsData", "Pseudo-data (Bkg + mu*Signal)", argSet, RooFit::WeightVar(wVar));
+
+    // Добавляем фоновые события с их оригинальными весами
+    for (const auto &entry : vBkg) {
+        if (entry.first < FIT_MRECOIL_MIN || entry.first > FIT_MRECOIL_MAX)
+            continue;
+        Mrecoil.setVal(entry.first);
+        dsData->add(argSet, entry.second);
+    }
+
+    // Добавляем сигнальные события с весами, умноженными на mu.
+    if (FIT_PSEUDO_MU > 0.0) {
+        for (const auto &entry : vSignal) {
+            if (entry.first < FIT_MRECOIL_MIN || entry.first > FIT_MRECOIL_MAX)
+                continue;
+            Mrecoil.setVal(entry.first);
+            dsData->add(argSet, FIT_PSEUDO_MU * entry.second);
+        }
+    }
+
+    double sumW_Data = dsData->sumEntries();
+    std::cout << "[Fit] Псевдоданные: sumW = " << sumW_Data << "  (ожидалось "
+              << expectedNB + expectedNS << ")\n";
+
+    // =========================================================================
+    // ШАГ 7: ФИТ 1. НУЛЕВАЯ ГИПОТЕЗА H0 (только фон, nS = 0)
+    // =========================================================================
+    //
+    // H0: сигнала нет. Единственный свободный параметр nB.
+    // nS фиксируем в 0 через setConstant(true).
+    //
+    // fitTo() выполняет минимизацию -log(L) по свободным параметрам.
+    // Опции:
+    //   Extended(kTRUE)    — использовать расширенный NLL (с пуассоновским членом)
+    //   Range("fitRange")  — фитировать только в указанном диапазоне
+    //   SumW2Error(kTRUE)  — корректировать ошибки для взвешенных данных
+    //   Save(kTRUE)        — сохранить результат в RooFitResult
+    //   PrintLevel(-1)     — подавить вывод MINUIT (0 = минимальный, -1 = тихий)
+    //
+    nS.setVal(0.0);
+    nS.setConstant(kTRUE); // заморозить nS = 0
+
+    // Сбрасываем nB к ожидаемому значению перед каждым фитом,
+    // чтобы минимизатор не стартовал из плохой точки.
+    nB.setVal(expectedNB);
+
+    RooFitResult *fitResB =
+        model.fitTo(*dsData, RooFit::Extended(kTRUE), RooFit::Range("fitRange"),
+                    RooFit::SumW2Error(kTRUE), RooFit::Save(kTRUE), RooFit::PrintLevel(-1));
+
+    if (!fitResB || fitResB->status() != 0) {
+        // status() == 0 означает, что MINUIT успешно сошёлся.
+        // Ненулевой статус: 1 = covariance forced positive definite,
+        //                   2 = HESSE failed, 3 = MINOS failed.
+        std::cerr << "[Fit] Предупреждение: фит H0 завершился со статусом "
+                  << (fitResB ? fitResB->status() : -1) << "\n";
+    }
+    double nll_b = fitResB ? fitResB->minNll() : 0.0;
+    double fit_nB_H0 = nB.getVal();
+
+    std::cout << "[Fit] H0 (только фон): nB = " << fit_nB_H0 << ",  NLL_b = " << nll_b << "\n";
+
+    // =========================================================================
+    // ШАГ 8: ФИТ 2. АЛЬТЕРНАТИВНАЯ ГИПОТЕЗА H1 (сигнал + фон)
+    // =========================================================================
+    //
+    // H1: сигнал присутствует. Оба параметра nS и nB свободны.
+    // Получаем NLL_sb - минимум NLL при наилучшем описании данных.
+    //
+    nS.setConstant(kFALSE); // размораживаем nS
+    nS.setVal(expectedNS);  // стартуем из физически разумной точки
+    nB.setVal(expectedNB);
+
+    RooFitResult *fitResSB =
+        model.fitTo(*dsData, RooFit::Extended(kTRUE), RooFit::Range("fitRange"),
+                    RooFit::SumW2Error(kTRUE), RooFit::Save(kTRUE), RooFit::PrintLevel(-1));
+
+    if (!fitResSB || fitResSB->status() != 0) {
+        std::cerr << "[Fit] Предупреждение: фит H1 завершился со статусом "
+                  << (fitResSB ? fitResSB->status() : -1) << "\n";
+    }
+    double nll_sb = fitResSB ? fitResSB->minNll() : 0.0;
+
+    // Извлекаем итоговые значения параметров из результата фита H1.
+    double fit_nS = nS.getVal();
+    double fit_nS_err = nS.getError();
+    double fit_nB = nB.getVal();
+    double fit_nB_err = nB.getError();
+
+    // =========================================================================
+    // ШАГ 9: ОЦЕНКА ЗНАЧИМОСТИ
+    // =========================================================================
+    //
+    // --- Простая оценка ---
+    // Z_approx = nS / sqrt(nS + nB)
+    // Это приближение работает при большой статистике и гауссовых ошибках.
+    // Смысл: число сигнальных событий в единицах статистической флуктуации фона.
+    //
+    double significance_approx = 0.0;
+    if (fit_nS > 0 && (fit_nS + fit_nB) > 0)
+        significance_approx = fit_nS / std::sqrt(fit_nS + fit_nB);
+
+    // --- Оценка через отношение правдоподобий (Likelihood Ratio Test) ---
+    // Статистика теста: q0 = -2 * ln(L_b / L_sb) = 2 * (NLL_b - NLL_sb)
+    //
+    // По теореме Вилкса, при H0 верной и большой статистике q0 распределена
+    // как χ2(1) (хи-квадрат с одной степенью свободы) (так как H1 имеет на
+    // один параметр больше, чем H0).
+    //
+    // Значимость в σ: Z_LRT = sqrt(q0)
+    //
+    double q0 = 2.0 * (nll_b - nll_sb);
+    double significance_lrt = std::sqrt(std::max(0.0, q0));
+
+    std::cout << "\n[Fit] =====================================================\n";
+    std::cout << "[Fit] РЕЗУЛЬТАТЫ ФИТА (mu = " << FIT_PSEUDO_MU << ")\n";
+    std::cout << "[Fit] -----------------------------------------------------\n";
+    std::cout << "[Fit]   nS (fitted)  = " << fit_nS << " ± " << fit_nS_err << "\n";
+    std::cout << "[Fit]   nB (fitted)  = " << fit_nB << " ± " << fit_nB_err << "\n";
+    std::cout << "[Fit]   nS (expected)= " << expectedNS << "\n";
+    std::cout << "[Fit]   nB (expected)= " << expectedNB << "\n";
+    std::cout << "[Fit] -----------------------------------------------------\n";
+    std::cout << "[Fit]   NLL (H0, фон):      " << nll_b << "\n";
+    std::cout << "[Fit]   NLL (H1, сигн+фон): " << nll_sb << "\n";
+    std::cout << "[Fit]   q0 = 2*(NLL_b - NLL_sb) = " << q0 << "\n";
+    std::cout << "[Fit] -----------------------------------------------------\n";
+    std::cout << "[Fit]   Значимость (простая):  Z = " << significance_approx << " σ\n";
+    std::cout << "[Fit]   Значимость (LRT):      Z = " << significance_lrt << " σ\n";
+    std::cout << "[Fit] =====================================================\n\n";
+
+    // =========================================================================
+    // ШАГ 10: ВИЗУАЛИЗАЦИЯ
+    // =========================================================================
+    //
+    // RooPlot это объект для отрисовки данных и PDF поверх одной оси.
+    // Важно: порядок plotOn() имеет значение, каждый вызов добавляет слой.
+    // Данные рисуем первыми, потом кривые, так данные не перекрываются.
+    //
+    // Нормировка кривых: при plotOn() RooFit автоматически масштабирует PDF
+    // на (число событий в данных) × (ширина бина), если не задано иное.
+    // В расширенном фите используется Normalization(sumW_Data, RooAbsReal::NumEvent).
+    //
+    TCanvas *cFit = new TCanvas("cMrecoilFit", "M_{recoil} Template Fit", 900, 700);
+    cFit->SetLeftMargin(0.13);
+    cFit->SetRightMargin(0.05);
+    cFit->SetBottomMargin(0.12);
+
+    RooPlot *frame = Mrecoil.frame(RooFit::Title("M_{recoil} Template Fit"));
+    frame->GetXaxis()->SetTitle("M_{recoil} [GeV]");
+    frame->GetYaxis()->SetTitle("Events");
+
+    // Данные: DataError(RooAbsData::SumW2) рисует ошибки как sqrt(sum w_i^2),
+    // что правильно для взвешенных MC (а не просто sqrt(N)).
+    dsData->plotOn(frame, RooFit::Binning(FIT_PLOT_BINS), RooFit::MarkerStyle(20),
+                   RooFit::MarkerSize(1.0), RooFit::DataError(RooAbsData::SumW2),
+                   RooFit::Name("data"));
+
+    // Суммарный фит (H1): нормируем на суммарный вес псевдоданных
+    model.plotOn(frame, RooFit::Normalization(sumW_Data, RooAbsReal::NumEvent),
+                 RooFit::LineColor(kGreen + 1), RooFit::LineWidth(2), RooFit::Name("total"));
+
+    // Фоновая компонента: масштабируем на fit_nB (число событий фона из фита)
+    model.plotOn(frame, RooFit::Components(pdfBkg),
+                 RooFit::Normalization(fit_nB, RooAbsReal::NumEvent), RooFit::LineColor(kRed),
+                 RooFit::LineStyle(kDashed), RooFit::LineWidth(2), RooFit::Name("bkg"));
+
+    // Сигнальная компонента: масштабируем на fit_nS
+    model.plotOn(frame, RooFit::Components(pdfSignal),
+                 RooFit::Normalization(fit_nS, RooAbsReal::NumEvent), RooFit::LineColor(kBlue),
+                 RooFit::LineStyle(kDashed), RooFit::LineWidth(2), RooFit::Name("sig"));
+
+    // Задаём диапазон Y ДО Draw(), но с учётом режима шкалы. В лог-режиме минимум обязательно > 0.
+    if (FIT_PLOT_LOG_Y) {
+        frame->GetYaxis()->SetRangeUser(0.1, FIT_PLOT_YMAX);
+    } else {
+        frame->GetYaxis()->SetRangeUser(0.0, FIT_PLOT_YMAX);
+    }
+
+    // Вертикальные пунктирные линии по границам фитового диапазона.
+    TLine *lineMin = new TLine(FIT_MRECOIL_MIN, 0, FIT_MRECOIL_MIN, FIT_PLOT_YMAX * 0.95);
+    TLine *lineMax = new TLine(FIT_MRECOIL_MAX, 0, FIT_MRECOIL_MAX, FIT_PLOT_YMAX * 0.95);
+    lineMin->SetLineStyle(kDotted);
+    lineMin->SetLineColor(kGray + 1);
+    lineMax->SetLineStyle(kDotted);
+    lineMax->SetLineColor(kGray + 1);
+
+    frame->Draw();
+    if (FIT_PLOT_LOG_Y)
+        cFit->SetLogy();
+    lineMin->Draw("SAME");
+    lineMax->Draw("SAME");
+
+    // Легенда
+    TLegend *leg = new TLegend(0.76, 0.85, 0.98, 0.98);
+    leg->SetBorderSize(1);
+    leg->SetFillColor(0);
+    leg->SetTextSize(0.023);
+    leg->AddEntry(frame->findObject("data"), "Pseudo-Data", "p");
+    leg->AddEntry(frame->findObject("total"), "Total Fit", "l");
+    leg->AddEntry(frame->findObject("bkg"), "Background Template", "l");
+    leg->AddEntry(frame->findObject("sig"), "Signal Template", "l");
+    leg->Draw();
+
+    // Информационный блок с результатами фита
+    TPaveText *info = new TPaveText(0.76, 0.7, 0.98, 0.83, "NDC NB");
+    info->SetFillColor(0);
+    info->SetFillStyle(1001);
+    info->SetBorderSize(1);
+    info->SetTextAlign(12);
+    info->SetTextSize(0.020);
+    info->AddText(Form("mu = %.2f", FIT_PSEUDO_MU));
+    info->AddText(Form("nS = %.1f #pm %.1f", fit_nS, fit_nS_err));
+    info->AddText(Form("nB = %.1f #pm %.1f", fit_nB, fit_nB_err));
+    info->AddText(Form("Z (simple) = %.2f #sigma", significance_approx));
+    info->AddText(Form("Z (LRT)    = %.2f #sigma", significance_lrt));
+    info->Draw();
+
+    cFit->SaveAs(outputPath.c_str());
+    std::cout << "[Fit] График сохранён: " << outputPath << "\n";
+
+    // =========================================================================
+    // ОЧИСТКА ПАМЯТИ
+    // =========================================================================
+    delete leg;
+    delete info;
+    delete lineMin;
+    delete lineMax;
+    delete frame;
+    delete cFit;
+    delete dsData;
+    delete dsSignal;
+    delete dsBkg;
+    if (fitResB)
+        delete fitResB;
+    if (fitResSB)
+        delete fitResSB;
+}
+
 // Извлечение имени процесса из пути к файлу
 // Формат файла: merged_E240_qqHX.root
 std::string extractProcessName(const std::string &filepath) {
@@ -699,6 +1144,10 @@ int main(int argc, char *argv[]) {
 
     // Контейнер для отдельных гистограмм каждого процесса + их метаданные
     std::map<std::string, std::pair<TH1F *, ProcessInfo>> processRecoilHists;
+
+    // Контейнеры для накопления Mrecoil после всех отборов
+    std::vector<std::pair<double, double>> vMrecoil_Signal_Weighted;
+    std::vector<std::pair<double, double>> vMrecoil_Bkg_Weighted;
 
     // Цикл по входным файлам
     auto processDB = getProcessDatabase();
@@ -1047,6 +1496,14 @@ int main(int argc, char *argv[]) {
             // Если событие прошло все отборы, то заполняем гистограмму текущего процесса. Веса
             // применим уже при построении стековой гистограммы
             hRecoilMassWeight->Fill(recoilMass);
+
+            // Определяем, сигнал это или фон (по имени процесса). Заполняем соотвествующий
+            // контейнер с весом.
+            bool isSignal = (processName.find("qqHinvi") != std::string::npos);
+            if (isSignal)
+                vMrecoil_Signal_Weighted.emplace_back(recoilMass, proc.weight);
+            else
+                vMrecoil_Bkg_Weighted.emplace_back(recoilMass, proc.weight);
         }
 
         // Итоговая статистика
@@ -1209,6 +1666,10 @@ int main(int argc, char *argv[]) {
     // Построение стек гистограммы
     std::string stackOutput = (fs::path(outputBaseDir) / "recoil_stack_weighted.pdf").string();
     drawRecoilStack(processRecoilHists, RECOIL_STACK_ORDER, stackOutput);
+
+    // Запуск шаблонного фита на накопленных данных
+    std::string fitOutput = (fs::path(outputBaseDir) / "template_fit_recoil.pdf").string();
+    runMrecoilTemplateFit(vMrecoil_Signal_Weighted, vMrecoil_Bkg_Weighted, fitOutput);
 
     // Очистка
     for (auto &p : processRecoilHists)
