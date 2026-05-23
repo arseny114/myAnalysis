@@ -96,7 +96,7 @@ const int PDG_PHOTON = 22;
 const int PDG_ELECTRON = 11;
 const int PDG_MUON = 13;
 
-const int MASS_BINS = 200;
+const int MASS_BINS = 50;
 const double MASS_MIN_GEV = 0.0;
 const double MASS_MAX_GEV = 250.0;
 
@@ -105,7 +105,7 @@ const double RECOIL_MIN_GEV = 0.0;
 const double RECOIL_MAX_GEV = 250.0;
 
 // Параметры для гистограмм угловых распределений
-const int COS_THETA_Z_BINS = 100;
+const int COS_THETA_Z_BINS = 50;
 const double COS_THETA_Z_MIN = -1.0;
 const double COS_THETA_Z_MAX = 1.0;
 
@@ -122,7 +122,7 @@ const int DELTA_THETA_BINS = 100;
 const double DELTA_THETA_MIN = 0.0;
 const double DELTA_THETA_MAX = M_PI;
 
-const int DELTA_PHI_BINS = 100;
+const int DELTA_PHI_BINS = 50;
 const double DELTA_PHI_MIN = 0.0;
 const double DELTA_PHI_MAX = M_PI;
 
@@ -131,12 +131,12 @@ const int MET_PFO_BINS = 100;
 const double MET_PFO_MIN = 0.0;
 const double MET_PFO_MAX = 150.0;
 
-const int MET_JET_BINS = 100;
+const int MET_JET_BINS = 50;
 const double MET_JET_MIN = 0.0;
 const double MET_JET_MAX = 150.0;
 
 // Параметры для гистограмм недостающего 3-импульса (Pmiss)
-const int PMISS_BINS = 100;
+const int PMISS_BINS = 50;
 const double PMISS_MIN_GEV = 0.0;
 const double PMISS_MAX_GEV = 150.0;
 
@@ -159,7 +159,7 @@ const bool RECOIL_COMP_LOG_Y = false;
 // =============================================================================
 // НАСТРОЙКИ ДЛЯ СРАВНИТЕЛЬНЫХ ГИСТОГРАММ ПРЕДОТБОРОВ
 // =============================================================================
-const int PHOTON_ENERGY_BINS = 150;
+const int PHOTON_ENERGY_BINS = 120;
 const double PHOTON_ENERGY_MIN = 0.0;
 const double PHOTON_ENERGY_MAX = 100.0;
 

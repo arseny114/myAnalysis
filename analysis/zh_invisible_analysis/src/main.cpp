@@ -650,7 +650,7 @@ void drawPreselectionHistograms(
     // Отключаем статистику в углу
     gStyle->SetOptStat(0);
 
-    TLegend *leg = new TLegend(0.69, 0.65, 0.93, 0.88);
+    TLegend *leg = new TLegend(0.74, 0.75, 0.98, 0.98);
     leg->SetFillColor(0);
     leg->SetBorderSize(1);
     leg->SetTextSize(0.025);
@@ -687,21 +687,21 @@ void drawPreselectionHistograms(
         hNorm->Scale(scale);
 
         hNorm->SetLineColor(info.color);
-        hNorm->SetLineWidth(2);
-        hNorm->SetFillColor(0); // Без заливки
+        hNorm->SetLineWidth(3);
+        hNorm->SetFillColor(0);
         hNorm->SetMarkerStyle(20);
         hNorm->SetMarkerColor(info.color);
         hNorm->SetMarkerSize(0.8);
 
         if (first) {
-            hNorm->Draw("HIST E");
+            hNorm->Draw("HIST");
             hNorm->GetXaxis()->SetTitle(xTitle.c_str());
             hNorm->GetYaxis()->SetTitle("Normalized Events");
             hNorm->GetYaxis()->SetTitleSize(0.045);
             hNorm->GetXaxis()->SetTitleSize(0.045);
             first = false;
         } else {
-            hNorm->Draw("HIST E SAME");
+            hNorm->Draw("HIST SAME");
         }
 
         leg->AddEntry(hNorm, info.legendName.c_str(), "L");
@@ -738,6 +738,83 @@ void drawPreselectionHistograms(
     c->SaveAs(outputFile.c_str());
     std::cout << "Сохранено: " << outputFile << std::endl;
 
+    delete c;
+    delete leg;
+}
+
+// Отрисовка суммарных гистограмм основных отборов
+// Поддерживает до 2 стрелок (для окон типа [min, max])
+void drawMainSelectionHistograms(
+    const std::map<std::string, std::pair<TH1F *, ProcessInfo>> &processes,
+    const std::string &title, const std::string &xTitle, const std::string &outputFile,
+    std::vector<double> markValues = {}) {
+    TCanvas *c = new TCanvas("cMainSel", title.c_str(), 900, 700);
+    c->SetLeftMargin(0.12);
+    c->SetRightMargin(0.05);
+    c->SetBottomMargin(0.12);
+    c->SetLogy(true);
+    gStyle->SetOptStat(0);
+
+    TLegend *leg = new TLegend(0.74, 0.75, 0.98, 0.98);
+    leg->SetFillColor(0);
+    leg->SetBorderSize(1);
+    leg->SetTextSize(0.025);
+
+    bool first = true;
+    for (const auto &procEntry : processes) {
+        TH1F *hist = procEntry.second.first;
+        const ProcessInfo &info = procEntry.second.second;
+        if (hist->GetEntries() == 0)
+            continue;
+
+        TH1F *hNorm = (TH1F *)hist->Clone(Form("hNormMain_%s", procEntry.first.c_str()));
+        double scale = (hist->Integral() > 0) ? 1.0 / hist->Integral() : 1.0;
+        hNorm->Scale(scale);
+        hNorm->SetLineColor(info.color);
+        hNorm->SetLineWidth(3);
+        hNorm->SetFillColor(0);
+        hNorm->SetMarkerSize(0);
+
+        if (first) {
+            hNorm->Draw("HIST");
+            hNorm->GetXaxis()->SetTitle(xTitle.c_str());
+            hNorm->GetYaxis()->SetTitle("Normalized Events");
+            hNorm->GetYaxis()->SetTitleSize(0.045);
+            hNorm->GetXaxis()->SetTitleSize(0.045);
+            first = false;
+        } else {
+            hNorm->Draw("HIST SAME");
+        }
+        leg->AddEntry(hNorm, info.legendName.c_str(), "L");
+    }
+
+    if (!first && !markValues.empty()) {
+        c->Update();
+        double yminLog = gPad->GetUymin();
+        double ymaxLog = gPad->GetUymax();
+
+        for (double val : markValues) {
+            double yReal_min = std::pow(10.0, yminLog);
+            double yReal_max = std::pow(10.0, ymaxLog);
+            TLine *line = new TLine(val, yReal_min, val, yReal_max);
+            line->SetLineColor(kRed);
+            line->SetLineWidth(6);
+            line->SetLineStyle(kDashed);
+            line->Draw();
+
+            double arrowY2 = std::pow(10.0, yminLog + (ymaxLog - yminLog) * 0.15);
+            double arrowY1 = std::pow(10.0, yminLog + (ymaxLog - yminLog) * 0.70);
+            TArrow *arrow = new TArrow(val, arrowY1, val, arrowY2, 0.030, "|>");
+            arrow->SetLineColor(kRed);
+            arrow->SetLineWidth(3);
+            arrow->SetFillColor(kRed);
+            arrow->Draw();
+        }
+    }
+
+    leg->Draw();
+    c->SaveAs(outputFile.c_str());
+    std::cout << "Сохранено: " << outputFile << std::endl;
     delete c;
     delete leg;
 }
@@ -1259,6 +1336,9 @@ int main(int argc, char *argv[]) {
     // Сравнительные гистограммы предотборов (общие для всех процессов)
     std::map<std::string, std::map<std::string, TH1F *>> preselectionHists;
 
+    // Суммарные гистограммы для основных отборов (общие для всех процессов)
+    std::map<std::string, std::map<std::string, TH1F *>> mainSelHists;
+
     // Цикл по входным файлам
     auto processDB = getProcessDatabase();
     for (const auto &inputRootFile : inputFiles) {
@@ -1450,6 +1530,38 @@ int main(int argc, char *argv[]) {
         preselectionHists[processName]["nJets"] = hNJets;
         preselectionHists[processName]["nConstituents"] = hNConstituents;
 
+        // Гистограммы основных отборов
+        TH1F *hMainMET = new TH1F(Form("hMainMET_%s", processName.c_str()),
+                                  "MET from Two Jets;MET_{jet} [GeV];Events", MET_JET_BINS,
+                                  MET_JET_MIN, MET_JET_MAX);
+        hMainMET->SetDirectory(0);
+
+        TH1F *hMainDeltaPhi = new TH1F(Form("hMainDeltaPhi_%s", processName.c_str()),
+                                       "#Delta#phi between jets;#Delta#phi [rad];Events",
+                                       DELTA_PHI_BINS, DELTA_PHI_MIN, DELTA_PHI_MAX);
+        hMainDeltaPhi->SetDirectory(0);
+
+        TH1F *hMainCosThetaZ = new TH1F(Form("hMainCosThetaZ_%s", processName.c_str()),
+                                        "cos#theta_{Z};cos#theta_{Z};Events", COS_THETA_Z_BINS,
+                                        COS_THETA_Z_MIN, COS_THETA_Z_MAX);
+        hMainCosThetaZ->SetDirectory(0);
+
+        TH1F *hMainDijetMass = new TH1F(Form("hMainDijetMass_%s", processName.c_str()),
+                                        "Invariant Mass of Two Jets;M_{jj} [GeV];Events", MASS_BINS,
+                                        MASS_MIN_GEV, MASS_MAX_GEV);
+        hMainDijetMass->SetDirectory(0);
+
+        TH1F *hMainPmiss = new TH1F(Form("hMainPmiss_%s", processName.c_str()),
+                                    "Missing Momentum;|P_{miss}| [GeV];Events", PMISS_BINS,
+                                    PMISS_MIN_GEV, PMISS_MAX_GEV);
+        hMainPmiss->SetDirectory(0);
+
+        mainSelHists[processName]["met"] = hMainMET;
+        mainSelHists[processName]["deltaPhi"] = hMainDeltaPhi;
+        mainSelHists[processName]["cosThetaZ"] = hMainCosThetaZ;
+        mainSelHists[processName]["dijetMass"] = hMainDijetMass;
+        mainSelHists[processName]["pmiss"] = hMainPmiss;
+
         // Взвешенная гистограмма массы отдачи для текущего процесса
         TH1F *hRecoilMassWeight = new TH1F(
             ("hRecoil_" + processName).c_str(), "Weight Recoil Mass;M_{recoil} [GeV];Events",
@@ -1616,6 +1728,13 @@ int main(int argc, char *argv[]) {
             h2D_Mjj_vs_MET->Fill(met_jet, invMass);
             h2D_Mjj_vs_Pmiss->Fill(pmiss_mag, invMass);
             h2D_CosThetaZ_vs_CosThetaPmiss->Fill(cosThetaPmiss, cosThetaZ);
+
+            // Заполнение суммарных гистограмм для основных отборов (после предотборов)
+            mainSelHists[processName]["met"]->Fill(met_jet);
+            mainSelHists[processName]["deltaPhi"]->Fill(deltaPhi);
+            mainSelHists[processName]["cosThetaZ"]->Fill(cosThetaZ);
+            mainSelHists[processName]["dijetMass"]->Fill(invMass);
+            mainSelHists[processName]["pmiss"]->Fill(pmiss_mag);
 
             // ==================== ОСНОВНЫЕ ОТБОРЫ ====================
             if (APPLY_MAIN_MET_CUT && (met_jet < MET_CUT_MIN_GEV || met_jet > MET_CUT_MAX_GEV))
@@ -1889,6 +2008,90 @@ int main(int argc, char *argv[]) {
 
     std::cout << "Гистограммы предотборов сохранены в: " << preselectionDir << "\n";
 
+    // =============================================================================
+    // ОТРИСОВКА СУММАРНЫХ ГИСТОГРАММ ОСНОВНЫХ ОТБОРОВ
+    // =============================================================================
+    std::cout << "\nОтрисовка гистограмм основных отборов...\n";
+
+    std::map<std::string, std::pair<TH1F *, ProcessInfo>> mainMETmap, mainDPhiMap, mainCosTMap,
+        mainMjjMap, mainPmissMap;
+
+    for (const auto &procEntry : mainSelHists) {
+        const std::string &procName = procEntry.first;
+        ProcessInfo info;
+        auto it = processRecoilHists.find(procName);
+        if (it != processRecoilHists.end())
+            info = it->second.second;
+        else
+            info = ProcessInfo{procName, 1.0, kBlack, 1001};
+
+        if (procEntry.second.count("met"))
+            mainMETmap[procName] = {procEntry.second.at("met"), info};
+        if (procEntry.second.count("deltaPhi"))
+            mainDPhiMap[procName] = {procEntry.second.at("deltaPhi"), info};
+        if (procEntry.second.count("cosThetaZ"))
+            mainCosTMap[procName] = {procEntry.second.at("cosThetaZ"), info};
+        if (procEntry.second.count("dijetMass"))
+            mainMjjMap[procName] = {procEntry.second.at("dijetMass"), info};
+        if (procEntry.second.count("pmiss"))
+            mainPmissMap[procName] = {procEntry.second.at("pmiss"), info};
+    }
+
+    std::string mainSelDir = (fs::path(outputBaseDir) / "main_selection").string();
+    fs::create_directories(mainSelDir);
+
+    // MET: окно [min, max] 2 стрелки
+    drawMainSelectionHistograms(mainMETmap, "MET Distribution", "MET_{jet} [GeV]",
+                                (fs::path(mainSelDir) / "main_met.pdf").string(),
+#if APPLY_MAIN_MET_CUT
+                                { MET_CUT_MIN_GEV, MET_CUT_MAX_GEV }
+#else
+                                {}
+#endif
+    );
+
+    // deltaPhi: один верхний предел 1 стрелка
+    drawMainSelectionHistograms(mainDPhiMap, "#Delta#phi Distribution", "#Delta#phi [rad]",
+                                (fs::path(mainSelDir) / "main_deltaPhi.pdf").string(),
+#if APPLY_MAIN_DELTA_PHI_CUT
+                                { DELTA_PHI_CUT_MAX }
+#else
+                                {}
+#endif
+    );
+
+    // |cos theta_Z|: симметричный порог — 2 стрелки
+    drawMainSelectionHistograms(mainCosTMap, "cos#theta_{Z} Distribution", "cos#theta_{Z}",
+                                (fs::path(mainSelDir) / "main_cosThetaZ.pdf").string(),
+#if APPLY_MAIN_COS_THETA_Z_CUT
+                                { -COS_THETA_Z_CUT, COS_THETA_Z_CUT }
+#else
+                                {}
+#endif
+    );
+
+    // M_jj: окно [min, max] 2 стрелки
+    drawMainSelectionHistograms(mainMjjMap, "Dijet Mass Distribution", "M_{jj} [GeV]",
+                                (fs::path(mainSelDir) / "main_dijetMass.pdf").string(),
+#if APPLY_MAIN_DIJET_MASS_WINDOW
+                                { DIJET_MASS_WINDOW_MIN_GEV, DIJET_MASS_WINDOW_MAX_GEV }
+#else
+                                {}
+#endif
+    );
+
+    // Pmiss: окно [min, max] 2 стрелки
+    drawMainSelectionHistograms(mainPmissMap, "Missing Momentum Distribution", "|P_{miss}| [GeV]",
+                                (fs::path(mainSelDir) / "main_pmiss.pdf").string(),
+#if APPLY_MAIN_PMISS_CUT
+                                { PMISS_CUT_MIN_GEV, PMISS_CUT_MAX_GEV }
+#else
+                                {}
+#endif
+    );
+
+    std::cout << "Гистограммы основных отборов сохранены в: " << mainSelDir << "\n";
+
     // Построение сравнительной гистограммы массы отдачи (qqHX и qqHinvi)
     std::string compOutput =
         (fs::path(outputBaseDir) / "recoil_comparison_qqHX_vs_signal.pdf").string();
@@ -1911,6 +2114,10 @@ int main(int argc, char *argv[]) {
             delete histEntry.second;
         }
     }
+
+    for (auto &procEntry : mainSelHists)
+        for (auto &histEntry : procEntry.second)
+            delete histEntry.second;
 
     return 0;
 }
