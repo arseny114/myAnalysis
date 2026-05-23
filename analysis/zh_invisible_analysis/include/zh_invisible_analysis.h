@@ -374,22 +374,17 @@ std::map<std::string, ProcessInfo> getProcessDatabase() {
         ProcessInfo{"4f_sznu_sl0nu_up", 1.8633, kOrange - 3, 1001};
     db["merged_E240_4f_ww_h0cuxx.root"] = ProcessInfo{"4f_ww_h0cuxx", 47.6774, kMagenta - 2, 1001};
     db["merged_E240_4f_zz_h0dtdt.root"] = ProcessInfo{"4f_zz_h0dtdt", 6.4182, kCyan + 1, 1001};
-    db["merged_E240_qqHinvi.root"] = ProcessInfo{"qqHinvi (signal)", 0.0080, kRed + 1, 3005};
+    db["merged_E240_nunuHX.root"] = ProcessInfo{"nunuHX", 0.2954, kYellow, 1001};
+    db["merged_E240_qqHinvi.root"] = ProcessInfo{"qqHinvi (signal)", 0.0072, kRed + 1, 3005};
 
     return db;
 }
 
 // Фиксированный порядок процессов в стеке: от фона к сигналу
 const std::vector<std::string> RECOIL_STACK_ORDER = {
-    "E240_4f_sznu_sl0nu_up", // nunuZ
-    "E240_4f_sw_sl0qq",      // sw
-    "E240_4f_ww_h0cuxx",     // ww
-    "E240_4f_sze_sl0uu",     // sze
-    "E240_4f_zz_h0dtdt",     // zz
-    "E240_qq",               // qq background
-    "E240_qqHX",             // qqHX
-    "E240_qqHinvi"           // signal, всегда последним
-};
+    "E240_4f_sznu_sl0nu_up", "E240_4f_sw_sl0qq", "E240_4f_ww_h0cuxx", "E240_4f_sze_sl0uu",
+    "E240_4f_zz_h0dtdt",     "E240_nunuHX",      "E240_qq",           "E240_qqHX",
+    "E240_qqHinvi"};
 
 // =============================================================================
 // НАСТРОЙКИ ШАБЛОННОГО ФИТА Mrecoil (RooFit)

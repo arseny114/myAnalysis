@@ -476,7 +476,7 @@ void drawRecoilStack(const std::map<std::string, std::pair<TH1F *, ProcessInfo>>
 
     THStack *stack =
         new THStack("recoilStack", "Recoil Mass Distribution;M_{recoil} [GeV];Expected events");
-    TLegend *leg = new TLegend(0.75, 0.65, 0.95, 0.88);
+    TLegend *leg = new TLegend(0.75, 0.4, 0.95, 0.88);
     leg->SetFillColor(0);
     leg->SetBorderSize(1);
 
