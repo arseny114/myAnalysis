@@ -22,6 +22,7 @@
 #include <RooKeysPdf.h>
 #include <RooPlot.h>
 #include <RooRealVar.h>
+#include <TArrow.h>
 #include <TCanvas.h>
 #include <TFile.h>
 #include <TH1F.h>
@@ -635,6 +636,112 @@ void drawRecoilComparison(const std::map<std::string, std::pair<TH1F *, ProcessI
     delete hSig;
 }
 
+// Отрисовка гистограмм предотборов (линии разных цветов, режим same)
+void drawPreselectionHistograms(
+    const std::map<std::string, std::pair<TH1F *, ProcessInfo>> &processes,
+    const std::string &histName, const std::string &title, const std::string &xTitle,
+    const std::string &outputFile, double markValue = -1) {
+    TCanvas *c = new TCanvas("cPreselection", title.c_str(), 900, 700);
+    c->SetLeftMargin(0.12);
+    c->SetRightMargin(0.05);
+    c->SetBottomMargin(0.12);
+    c->SetLogy(true);
+
+    // Отключаем статистику в углу
+    gStyle->SetOptStat(0);
+
+    TLegend *leg = new TLegend(0.69, 0.65, 0.93, 0.88);
+    leg->SetFillColor(0);
+    leg->SetBorderSize(1);
+    leg->SetTextSize(0.025);
+
+    TH1F *firstHist = nullptr;
+
+    // Находим первую гистограмму для настройки осей
+    for (const auto &proc : processes) {
+        if (proc.second.first->GetEntries() > 0) {
+            firstHist = proc.second.first;
+            break;
+        }
+    }
+
+    if (!firstHist) {
+        std::cerr << "[drawPreselection] Нет данных для отрисовки!\n";
+        delete c;
+        delete leg;
+        return;
+    }
+
+    // Рисуем первую гистограмму
+    bool first = true;
+    for (const auto &procEntry : processes) {
+        TH1F *hist = procEntry.second.first;
+        const ProcessInfo &info = procEntry.second.second;
+
+        if (hist->GetEntries() == 0)
+            continue;
+
+        // Нормализуем на число событий
+        TH1F *hNorm = (TH1F *)hist->Clone(Form("hNorm_%s", procEntry.first.c_str()));
+        double scale = (hist->Integral() > 0) ? 1.0 / hist->Integral() : 1.0;
+        hNorm->Scale(scale);
+
+        hNorm->SetLineColor(info.color);
+        hNorm->SetLineWidth(2);
+        hNorm->SetFillColor(0); // Без заливки
+        hNorm->SetMarkerStyle(20);
+        hNorm->SetMarkerColor(info.color);
+        hNorm->SetMarkerSize(0.8);
+
+        if (first) {
+            hNorm->Draw("HIST E");
+            hNorm->GetXaxis()->SetTitle(xTitle.c_str());
+            hNorm->GetYaxis()->SetTitle("Normalized Events");
+            hNorm->GetYaxis()->SetTitleSize(0.045);
+            hNorm->GetXaxis()->SetTitleSize(0.045);
+            first = false;
+        } else {
+            hNorm->Draw("HIST E SAME");
+        }
+
+        leg->AddEntry(hNorm, info.legendName.c_str(), "L");
+    }
+
+    // Рисуем линию отбора
+    if (markValue > 0) {
+        c->Update();
+        // В лог-режиме GetUymin/GetUymax возвращают log10 значений
+        double yminLog = gPad->GetUymin();
+        double ymaxLog = gPad->GetUymax();
+        double yReal_min = std::pow(10.0, yminLog);
+        double yReal_max = std::pow(10.0, ymaxLog);
+
+        // Линия на весь диапазон по Y
+        TLine *line = new TLine(markValue, yReal_min, markValue, yReal_max);
+        line->SetLineColor(kRed);
+        line->SetLineWidth(6);
+        line->SetLineStyle(kDashed);
+        line->Draw();
+
+        // Стрелка: начинается на 70% высоты, заканчивается на 15%
+        // В log-шкале позиции вычисляем через экспоненту
+        double arrowY2 = std::pow(10.0, yminLog + (ymaxLog - yminLog) * 0.15);
+        double arrowY1 = std::pow(10.0, yminLog + (ymaxLog - yminLog) * 0.70);
+        TArrow *arrow = new TArrow(markValue, arrowY1, markValue, arrowY2, 0.030, "|>");
+        arrow->SetLineColor(kRed);
+        arrow->SetLineWidth(3);
+        arrow->SetFillColor(kRed);
+        arrow->Draw();
+    }
+
+    leg->Draw();
+    c->SaveAs(outputFile.c_str());
+    std::cout << "Сохранено: " << outputFile << std::endl;
+
+    delete c;
+    delete leg;
+}
+
 // =============================================================================
 // ФУНКЦИЯ runMrecoilTemplateFit
 // =============================================================================
@@ -1149,6 +1256,9 @@ int main(int argc, char *argv[]) {
     std::vector<std::pair<double, double>> vMrecoil_Signal_Weighted;
     std::vector<std::pair<double, double>> vMrecoil_Bkg_Weighted;
 
+    // Сравнительные гистограммы предотборов (общие для всех процессов)
+    std::map<std::string, std::map<std::string, TH1F *>> preselectionHists;
+
     // Цикл по входным файлам
     auto processDB = getProcessDatabase();
     for (const auto &inputRootFile : inputFiles) {
@@ -1320,6 +1430,26 @@ int main(int argc, char *argv[]) {
             new TH1F("hDijetEnergy", "Dijet System Energy;E_{jj} [GeV];Events", DIJET_ENERGY_BINS,
                      DIJET_ENERGY_MIN_GEV, DIJET_ENERGY_MAX_GEV);
 
+        // Создаем гистограммы для предотборов
+        TH1F *hPhotonEnergy = new TH1F(Form("hPhotonEnergy_%s", processName.c_str()),
+                                       "Photon Energy;E_{#gamma} [GeV];Events", PHOTON_ENERGY_BINS,
+                                       PHOTON_ENERGY_MIN, PHOTON_ENERGY_MAX);
+        hPhotonEnergy->SetDirectory(0);
+
+        TH1F *hNJets = new TH1F(Form("hNJets_%s", processName.c_str()),
+                                "Number of Jets;N_{jets};Events", NJETS_BINS, NJETS_MIN, NJETS_MAX);
+        hNJets->SetDirectory(0);
+
+        TH1F *hNConstituents = new TH1F(Form("hNConstituents_%s", processName.c_str()),
+                                        "Number of Constituents per Jet;N_{const};Events",
+                                        NCONST_BINS, NCONST_MIN, NCONST_MAX);
+        hNConstituents->SetDirectory(0);
+
+        // Сохраняем гистограммы предотборов в контейнер
+        preselectionHists[processName]["photonEnergy"] = hPhotonEnergy;
+        preselectionHists[processName]["nJets"] = hNJets;
+        preselectionHists[processName]["nConstituents"] = hNConstituents;
+
         // Взвешенная гистограмма массы отдачи для текущего процесса
         TH1F *hRecoilMassWeight = new TH1F(
             ("hRecoil_" + processName).c_str(), "Weight Recoil Mass;M_{recoil} [GeV];Events",
@@ -1360,6 +1490,36 @@ int main(int argc, char *argv[]) {
                                 elecStats.endcap++;
                         }
                     }
+                }
+            }
+
+            // ======== ЗАПОЛНЕНИЕ СРАВНИТЕЛЬНЫХ ГИСТОГРАММ ПРЕДОТБОРОВ ========
+            // Распределение энергии фотонов (максимальная энергия фотона в событии)
+            if (particleType && pfoE) {
+                double maxPhotonE = 0.0;
+                for (size_t k = 0; k < particleType->size(); ++k) {
+                    if (std::abs(particleType->at(k)) == PDG_PHOTON) {
+                        if (pfoE->at(k) > maxPhotonE) {
+                            maxPhotonE = pfoE->at(k);
+                        }
+                    }
+                }
+                if (maxPhotonE > 0) {
+                    preselectionHists[processName]["photonEnergy"]->Fill(maxPhotonE);
+                }
+            }
+
+            // Распределение числа джетов
+            if (inclJetE) {
+                int nJets = static_cast<int>(inclJetE->size());
+                preselectionHists[processName]["nJets"]->Fill(nJets);
+            }
+
+            // Распределение числа конституентов в джетах
+            if (inclJetSize) {
+                for (size_t j = 0; j < inclJetSize->size(); ++j) {
+                    int nConst = static_cast<int>(inclJetSize->at(j));
+                    preselectionHists[processName]["nConstituents"]->Fill(nConst);
                 }
             }
 
@@ -1658,6 +1818,77 @@ int main(int argc, char *argv[]) {
                   << std::endl;
     }
 
+    // =============================================================================
+    // ОТРИСОВКА ГИСТОГРАММ ПРЕДОТБОРОВ
+    // =============================================================================
+    std::cout << "\nОтрисовка гистограмм предотборов...\n";
+
+    // Создаем временные карты для отрисовки
+    std::map<std::string, std::pair<TH1F *, ProcessInfo>> histsPhotonEnergy;
+    std::map<std::string, std::pair<TH1F *, ProcessInfo>> histsNJets;
+    std::map<std::string, std::pair<TH1F *, ProcessInfo>> histsNConstituents;
+
+    for (const auto &procEntry : preselectionHists) {
+        const std::string &procName = procEntry.first;
+
+        // Находим ProcessInfo из processRecoilHists
+        ProcessInfo info;
+        auto it = processRecoilHists.find(procName);
+        if (it != processRecoilHists.end()) {
+            info = it->second.second;
+        } else {
+            info = ProcessInfo{procName, 1.0, kBlack, 1001};
+        }
+
+        if (procEntry.second.count("photonEnergy")) {
+            histsPhotonEnergy[procName] = {procEntry.second.at("photonEnergy"), info};
+        }
+        if (procEntry.second.count("nJets")) {
+            histsNJets[procName] = {procEntry.second.at("nJets"), info};
+        }
+        if (procEntry.second.count("nConstituents")) {
+            histsNConstituents[procName] = {procEntry.second.at("nConstituents"), info};
+        }
+    }
+
+    // Отрисовка
+    std::string preselectionDir = (fs::path(outputBaseDir) / "preselection").string();
+    fs::create_directories(preselectionDir);
+
+    // 1. Энергия фотонов с отметкой PHOTON_ENERGY_CUT_GEV
+    drawPreselectionHistograms(histsPhotonEnergy, "photonEnergy", "Max Photon Energy Distribution",
+                               "E_{#gamma}^{max} [GeV]",
+                               (fs::path(preselectionDir) / "photon_energy.pdf").string(),
+#if APPLY_PRE_HIGH_E_PHOTON_VETO
+                               PHOTON_ENERGY_CUT_GEV
+#else
+                               -1
+#endif
+    );
+
+    // 2. Число джетов с отметкой требования ровно 2 джета
+    drawPreselectionHistograms(histsNJets, "nJets", "Number of Jets Distribution", "N_{jets}",
+                               (fs::path(preselectionDir) / "n_jets.pdf").string(),
+#if APPLY_PRE_TWO_JETS_REQUIREMENT
+                               2
+#else
+                               -1
+#endif
+    );
+
+    // 3. Число конституентов с отметкой MIN_CONSTITUENTS_PER_JET
+    drawPreselectionHistograms(histsNConstituents, "nConstituents",
+                               "Number of Constituents per Jet", "N_{constituents}",
+                               (fs::path(preselectionDir) / "n_constituents.pdf").string(),
+#if APPLY_PRE_CONSTITUENTS_REQUIREMENT
+                               MIN_CONSTITUENTS_PER_JET
+#else
+                               -1
+#endif
+    );
+
+    std::cout << "Гистограммы предотборов сохранены в: " << preselectionDir << "\n";
+
     // Построение сравнительной гистограммы массы отдачи (qqHX и qqHinvi)
     std::string compOutput =
         (fs::path(outputBaseDir) / "recoil_comparison_qqHX_vs_signal.pdf").string();
@@ -1674,6 +1905,12 @@ int main(int argc, char *argv[]) {
     // Очистка
     for (auto &p : processRecoilHists)
         delete p.second.first;
+
+    for (auto &procEntry : preselectionHists) {
+        for (auto &histEntry : procEntry.second) {
+            delete histEntry.second;
+        }
+    }
 
     return 0;
 }

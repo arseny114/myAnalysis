@@ -157,6 +157,21 @@ const double RECOIL_COMP_W_SIGNAL = 0.00536;
 const bool RECOIL_COMP_LOG_Y = false;
 
 // =============================================================================
+// НАСТРОЙКИ ДЛЯ СРАВНИТЕЛЬНЫХ ГИСТОГРАММ ПРЕДОТБОРОВ
+// =============================================================================
+const int PHOTON_ENERGY_BINS = 150;
+const double PHOTON_ENERGY_MIN = 0.0;
+const double PHOTON_ENERGY_MAX = 100.0;
+
+const int NJETS_BINS = 11;
+const double NJETS_MIN = -0.5;
+const double NJETS_MAX = 10.5;
+
+const int NCONST_BINS = 50;
+const double NCONST_MIN = -0.5;
+const double NCONST_MAX = 49.5;
+
+// =============================================================================
 // НАСТРОЙКИ ВЫВОДА И ЛОГИРОВАНИЯ
 // =============================================================================
 
@@ -366,7 +381,7 @@ struct ProcessInfo {
 std::map<std::string, ProcessInfo> getProcessDatabase() {
     std::map<std::string, ProcessInfo> db;
 
-    db["merged_E240_qqHX.root"] = ProcessInfo{"qqHX", 0.8111, kRed - 3, 1001};
+    db["merged_E240_qqHX.root"] = ProcessInfo{"qqHX", 0.8111, kViolet - 3, 1001};
     db["merged_E240_qq.root"] = ProcessInfo{"qq", 513.7456, kGray + 2, 1001};
     db["merged_E240_4f_sw_sl0qq.root"] = ProcessInfo{"4f_sw_sl0qq", 32.8556, kAzure - 4, 1001};
     db["merged_E240_4f_sze_sl0uu.root"] = ProcessInfo{"4f_sze_sl0uu", 4.1155, kGreen + 2, 1001};
