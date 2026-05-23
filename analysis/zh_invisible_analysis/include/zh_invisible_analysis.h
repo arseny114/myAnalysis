@@ -363,7 +363,7 @@ const double RECOIL_STACK_MAX_Y = 30000;
 
 const bool RECOIL_STACK_LOG_Y = true;
 
-const double RECOIL_STACK_SIGNAL_MULTIPLIER = 20;
+const double RECOIL_STACK_SIGNAL_MULTIPLIER = 1;
 
 // Структура для описания процесса
 struct ProcessInfo {
@@ -395,11 +395,10 @@ std::map<std::string, ProcessInfo> getProcessDatabase() {
     return db;
 }
 
-// Фиксированный порядок процессов в стеке: от фона к сигналу
+// Порядок процессов в стек гистограмме
 const std::vector<std::string> RECOIL_STACK_ORDER = {
-    "E240_4f_sznu_sl0nu_up", "E240_4f_sw_sl0qq", "E240_4f_ww_h0cuxx", "E240_4f_sze_sl0uu",
-    "E240_4f_zz_h0dtdt",     "E240_nunuHX",      "E240_qq",           "E240_qqHX",
-    "E240_qqHinvi"};
+    "E240_qqHinvi",     "E240_4f_zz_h0dtdt", "E240_4f_sze_sl0uu", "E240_4f_ww_h0cuxx",    "E240_qq",
+    "E240_4f_sw_sl0qq", "E240_qqHX",         "E240_nunuHX",       "E240_4f_sznu_sl0nu_up"};
 
 // =============================================================================
 // НАСТРОЙКИ ШАБЛОННОГО ФИТА Mrecoil (RooFit)
