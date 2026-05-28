@@ -1897,12 +1897,20 @@ int main(int argc, char *argv[]) {
             // применим уже при построении стековой гистограммы
             hRecoilMassWeight->Fill(recoilMass);
 
+            // Вспомогательная лямбда функция для отбора только тех процессов, у которых есть
+            // достаточная статистика для дальнейшего анализа.
+            auto isProcessAllowed = [](const std::string &name) {
+                return std::find(RECOIL_STACK_ORDER.begin(), RECOIL_STACK_ORDER.end(), name) !=
+                       RECOIL_STACK_ORDER.end();
+            };
+
             // Определяем, сигнал это или фон (по имени процесса). Заполняем соотвествующий
-            // контейнер с весом.
+            // контейнер с весом. Добавляем в данные для фита только процессы с достаточной
+            // статистикой после отборов.
             bool isSignal = (processName.find("qqHinvi") != std::string::npos);
             if (isSignal)
                 vMrecoil_Signal_Weighted.emplace_back(recoilMass, proc.weight);
-            else
+            else if (isProcessAllowed(processName))
                 vMrecoil_Bkg_Weighted.emplace_back(recoilMass, proc.weight);
         }
 
