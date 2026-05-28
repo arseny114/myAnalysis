@@ -415,7 +415,7 @@ const double FIT_KEYSPDF_ADAPTIVITY_SIGNAL = 1.0;
 const bool FIT_KEYSPDF_MIRROR = false;
 
 // Доля сигнала в псевдоданных (параметр mu).
-const double FIT_PSEUDO_MU = 5.0;
+const double FIT_PSEUDO_MU = 20.0;
 
 // Настройки визуализации
 const int FIT_PLOT_BINS = 65;

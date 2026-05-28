@@ -860,6 +860,7 @@ void drawMainSelectionHistograms(
 // =============================================================================
 void runMrecoilTemplateFit(const std::vector<std::pair<double, double>> &vSignal,
                            const std::vector<std::pair<double, double>> &vBkg,
+                           const std::vector<std::pair<double, double>> &v_qqHX,
                            const std::string &outputPath) {
 
     if (vSignal.empty() || vBkg.empty()) {
@@ -869,9 +870,10 @@ void runMrecoilTemplateFit(const std::vector<std::pair<double, double>> &vSignal
 
     std::cout << "\n[Fit] =====================================================\n";
     std::cout << "[Fit] Запуск шаблонного фита M_recoil\n";
-    std::cout << "[Fit] Сигнальных MC-событий: " << vSignal.size() << "\n";
-    std::cout << "[Fit] Фоновых MC-событий:    " << vBkg.size() << "\n";
-    std::cout << "[Fit] mu (доля сигнала):     " << FIT_PSEUDO_MU << "\n";
+    std::cout << "[Fit] Сигнальных MC-событий (qqHinvi): " << vSignal.size() << "\n";
+    std::cout << "[Fit] Фоновых MC-событий (остальные):  " << vBkg.size() << "\n";
+    std::cout << "[Fit] qqHX MC-событий (сигнал+фон):    " << v_qqHX.size() << "\n";
+    std::cout << "[Fit] mu (доля сигнала):               " << FIT_PSEUDO_MU << "\n";
 
     // =========================================================================
     // ШАГ 1: НАБЛЮДАЕМАЯ ПЕРЕМЕННАЯ
@@ -927,6 +929,22 @@ void runMrecoilTemplateFit(const std::vector<std::pair<double, double>> &vSignal
         dsBkg->add(argSet, entry.second);
     }
 
+    // Добавляем qqHX с положительным весом (содержит сигнал + фон от инклюзивных распадов H)
+    for (const auto &entry : v_qqHX) {
+        if (entry.first < FIT_MRECOIL_MIN || entry.first > FIT_MRECOIL_MAX)
+            continue;
+        Mrecoil.setVal(entry.first);
+        dsBkg->add(argSet, entry.second); // добавляем с +весом
+    }
+
+    // Вычитаем чистый сигнал qqHinvi с отрицательным весом (чтобы убрать сигнал из qqHX)
+    for (const auto &entry : vSignal) {
+        if (entry.first < FIT_MRECOIL_MIN || entry.first > FIT_MRECOIL_MAX)
+            continue;
+        Mrecoil.setVal(entry.first);
+        dsBkg->add(argSet, -entry.second); // вычитаем с -весом
+    }
+
     // Суммарные взвешенные числа событий в шаблонах.
     // sumEntries() с весами возвращает сумму весов всех событий.
     // Это ожидаемое число событий при данной светимости.
@@ -934,7 +952,7 @@ void runMrecoilTemplateFit(const std::vector<std::pair<double, double>> &vSignal
     double sumW_B = dsBkg->sumEntries();
 
     std::cout << "[Fit] sumW_S (ожидаемый сигнал, полный):  " << sumW_S << "\n";
-    std::cout << "[Fit] sumW_B (ожидаемый фон):             " << sumW_B << "\n";
+    std::cout << "[Fit] sumW_B (ожидаемый фон с учётом qqHX - qqHinvi):  " << sumW_B << "\n";
     std::cout << "[Fit] Инжектируем mu * sumW_S =           " << FIT_PSEUDO_MU * sumW_S
               << " событий сигнала в псевдоданные\n";
 
@@ -1453,6 +1471,8 @@ int main(int argc, char *argv[]) {
     // Контейнеры для накопления Mrecoil после всех отборов
     std::vector<std::pair<double, double>> vMrecoil_Signal_Weighted;
     std::vector<std::pair<double, double>> vMrecoil_Bkg_Weighted;
+    // Для qqHX (сигнал + фон) нужен отдельный контейнер, см. функцию фита
+    std::vector<std::pair<double, double>> vMrecoil_qqHX_Weighted;
 
     // Сравнительные гистограммы предотборов (общие для всех процессов)
     std::map<std::string, std::map<std::string, TH1F *>> preselectionHists;
@@ -1906,10 +1926,15 @@ int main(int argc, char *argv[]) {
 
             // Определяем, сигнал это или фон (по имени процесса). Заполняем соотвествующий
             // контейнер с весом. Добавляем в данные для фита только процессы с достаточной
-            // статистикой после отборов.
+            // статистикой после отборов. Процесс qqHX сохраняем в отдельный контейнер потому что он
+            // содержит и фон и сигнал.
             bool isSignal = (processName.find("qqHinvi") != std::string::npos);
+            bool is_qqHX = (processName.find("qqHX") != std::string::npos);
+
             if (isSignal)
                 vMrecoil_Signal_Weighted.emplace_back(recoilMass, proc.weight);
+            else if (is_qqHX)
+                vMrecoil_qqHX_Weighted.emplace_back(recoilMass, proc.weight);
             else if (isProcessAllowed(processName))
                 vMrecoil_Bkg_Weighted.emplace_back(recoilMass, proc.weight);
         }
@@ -2231,7 +2256,7 @@ int main(int argc, char *argv[]) {
     drawRecoilStack(processRecoilHists, RECOIL_STACK_ORDER, stackOutput);
 
     // Запуск шаблонного фита на накопленных данных
-    runMrecoilTemplateFit(vMrecoil_Signal_Weighted, vMrecoil_Bkg_Weighted,
+    runMrecoilTemplateFit(vMrecoil_Signal_Weighted, vMrecoil_Bkg_Weighted, vMrecoil_qqHX_Weighted,
                           fs::path(outputBaseDir).string());
 
     // Очистка
