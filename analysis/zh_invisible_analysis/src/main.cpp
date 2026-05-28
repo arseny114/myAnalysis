@@ -973,7 +973,122 @@ void runMrecoilTemplateFit(const std::vector<std::pair<double, double>> &vSignal
     pdfBkg.setNormRange("fitRange");
 
     // =========================================================================
-    // ШАГ 4: ПАРАМЕТРЫ НОРМИРОВКИ (число событий)
+    // ШАГ 4: ПРОВЕРКА КАЧЕСТВА ШАБЛОНОВ (CHI2 TEST)
+    // =========================================================================
+    //
+    // С помощью каждого шаблона генерируем toy MC выборку большого размера,
+    // строим гистограммы и сравниваем с исходными данными через Chi2Test.
+    // Это позволяет оценить, насколько хорошо RooKeysPdf описывает MC.
+    //
+    std::cout << "\n[Fit] =====================================================\n";
+    std::cout << "[Fit] Проверка качества шаблонов (Chi2 test)\n";
+
+    // Переменные для хранения chi2 значений
+    double chi2B = 0.0;
+    double chi2S = 0.0;
+
+    // --- Проверка шаблона фона с построением графика ---
+    {
+        const int nBinsTempl = TEMPLATE_BACKGROUND_BINS;
+
+        // Создаём график для визуализации
+        RooPlot *frameBkg = Mrecoil.frame(RooFit::Title("Background Template Quality Check"));
+        dsBkg->plotOn(frameBkg, RooFit::Binning(nBinsTempl), RooFit::MarkerStyle(21),
+                      RooFit::LineColor(kRed), RooFit::MarkerColor(kRed));
+        pdfBkg.plotOn(frameBkg, RooFit::LineColor(kBlue), RooFit::LineWidth(2));
+
+        // Генерируем toy MC из PDF фона с большим числом событий для статистики
+        RooDataSet *toyBgd = pdfBkg.generate(
+            Mrecoil, static_cast<int>(sumW_B * TEMPLATE_BACKGROUND_TOYMC_MULTIPLIER));
+
+        // Создаём гистограммы: исходные данные vs toy MC
+        TH1 *hRawB = dsBkg->createHistogram(
+            "hRawB", Mrecoil, RooFit::Binning(nBinsTempl, FIT_MRECOIL_MIN, FIT_MRECOIL_MAX));
+        TH1 *hToyB = toyBgd->createHistogram(
+            "hToyB", Mrecoil, RooFit::Binning(nBinsTempl, FIT_MRECOIL_MIN, FIT_MRECOIL_MAX));
+
+        // Нормируем toy MC на то же число событий что и исходные данные
+        if (hRawB->Integral() > 0) {
+            double scaleB = hRawB->Integral() / hToyB->Integral();
+            hToyB->Scale(scaleB);
+        }
+
+        // Вычисляем Chi2/NDF
+        chi2B = hRawB->Chi2Test(hToyB, "CHI2/NDF");
+
+        // Сохраняем график
+        TCanvas *cBkg = new TCanvas("cBkg", "Background Template", 800, 600);
+        frameBkg->Draw();
+
+        // Добавляем текст с Chi2 на график
+        TLatex latexB;
+        latexB.SetNDC();
+        latexB.SetTextFont(42);
+        latexB.SetTextSize(0.04);
+        latexB.DrawLatex(0.15, 0.85, Form("#chi^{2}/ndf = %.3f", chi2B));
+
+        cBkg->SaveAs((outputPath + "/template_background.pdf").c_str());
+        std::cout << "[Fit] График сохранен: " << outputPath << "/template_background.pdf\n";
+
+        delete cBkg;
+        delete toyBgd;
+        delete hRawB;
+        delete hToyB;
+        delete frameBkg;
+    }
+
+    // --- Проверка шаблона сигнала с построением графика ---
+    {
+        const int nBinsTempl = TEMPLATE_SIGNAL_BINS;
+
+        // Создаём график для визуализации
+        RooPlot *frameSig = Mrecoil.frame(RooFit::Title("Signal Template Quality Check"));
+        dsSignal->plotOn(frameSig, RooFit::Binning(nBinsTempl), RooFit::MarkerStyle(22),
+                         RooFit::LineColor(kBlue), RooFit::MarkerColor(kBlue));
+        pdfSignal.plotOn(frameSig, RooFit::LineColor(kRed), RooFit::LineWidth(2));
+
+        // Генерируем toy MC из PDF сигнала
+        RooDataSet *toySig = pdfSignal.generate(
+            Mrecoil, static_cast<int>(sumW_S * TEMPLATE_SIGNAL_TOYMC_MULTIPLIER));
+
+        // Создаём гистограммы: исходные данные vs toy MC
+        TH1 *hRawS = dsSignal->createHistogram(
+            "hRawS", Mrecoil, RooFit::Binning(nBinsTempl, FIT_MRECOIL_MIN, FIT_MRECOIL_MAX));
+        TH1 *hToyS = toySig->createHistogram(
+            "hToyS", Mrecoil, RooFit::Binning(nBinsTempl, FIT_MRECOIL_MIN, FIT_MRECOIL_MAX));
+
+        // Нормируем toy MC на то же число событий что и исходные данные
+        if (hRawS->Integral() > 0) {
+            double scaleS = hRawS->Integral() / hToyS->Integral();
+            hToyS->Scale(scaleS);
+        }
+
+        // Вычисляем Chi2/NDF
+        chi2S = hRawS->Chi2Test(hToyS, "CHI2/NDF");
+
+        // Сохраняем график
+        TCanvas *cSig = new TCanvas("cSig", "Signal Template", 800, 600);
+        frameSig->Draw();
+
+        // Добавляем текст с Chi2 на график
+        TLatex latexS;
+        latexS.SetNDC();
+        latexS.SetTextFont(42);
+        latexS.SetTextSize(0.04);
+        latexS.DrawLatex(0.15, 0.85, Form("#chi^{2}/ndf = %.3f", chi2S));
+
+        cSig->SaveAs((outputPath + "/template_signal.pdf").c_str());
+        std::cout << "[Fit] График сохранен: " << outputPath << "/template_signal.pdf\n";
+
+        delete cSig;
+        delete toySig;
+        delete hRawS;
+        delete hToyS;
+        delete frameSig;
+    }
+
+    // =========================================================================
+    // ШАГ 5: ПАРАМЕТРЫ НОРМИРОВКИ (число событий)
     // =========================================================================
     //
     // Начальные значения = ожидаемые числа событий из MC.
@@ -991,7 +1106,7 @@ void runMrecoilTemplateFit(const std::vector<std::pair<double, double>> &vSignal
     RooRealVar nB("nB", "Background yield", expectedNB, 0.0, nB_max);
 
     // =========================================================================
-    // ШАГ 5: КОМБИНИРОВАННАЯ МОДЕЛЬ
+    // ШАГ 6: КОМБИНИРОВАННАЯ МОДЕЛЬ
     // =========================================================================
     //
     // RooAddPdf с двумя аргументами-нормировками создаёт расширенный PDF:
@@ -1001,7 +1116,7 @@ void runMrecoilTemplateFit(const std::vector<std::pair<double, double>> &vSignal
     model.setNormRange("fitRange");
 
     // =========================================================================
-    // ШАГ 6: ПСЕВДОДАННЫЕ
+    // ШАГ 7: ПСЕВДОДАННЫЕ
     // =========================================================================
     //
     // Псевдоданные (toy MC) - это то, что в реальном эксперименте было бы
@@ -1043,7 +1158,7 @@ void runMrecoilTemplateFit(const std::vector<std::pair<double, double>> &vSignal
               << expectedNB + expectedNS << ")\n";
 
     // =========================================================================
-    // ШАГ 7: ФИТ 1. НУЛЕВАЯ ГИПОТЕЗА H0 (только фон, nS = 0)
+    // ШАГ 8: ФИТ 1. НУЛЕВАЯ ГИПОТЕЗА H0 (только фон, nS = 0)
     // =========================================================================
     //
     // H0: сигнала нет. Единственный свободный параметр nB.
@@ -1081,7 +1196,7 @@ void runMrecoilTemplateFit(const std::vector<std::pair<double, double>> &vSignal
     std::cout << "[Fit] H0 (только фон): nB = " << fit_nB_H0 << ",  NLL_b = " << nll_b << "\n";
 
     // =========================================================================
-    // ШАГ 8: ФИТ 2. АЛЬТЕРНАТИВНАЯ ГИПОТЕЗА H1 (сигнал + фон)
+    // ШАГ 9: ФИТ 2. АЛЬТЕРНАТИВНАЯ ГИПОТЕЗА H1 (сигнал + фон)
     // =========================================================================
     //
     // H1: сигнал присутствует. Оба параметра nS и nB свободны.
@@ -1108,7 +1223,7 @@ void runMrecoilTemplateFit(const std::vector<std::pair<double, double>> &vSignal
     double fit_nB_err = nB.getError();
 
     // =========================================================================
-    // ШАГ 9: ОЦЕНКА ЗНАЧИМОСТИ
+    // ШАГ 10: ОЦЕНКА ЗНАЧИМОСТИ
     // =========================================================================
     //
     // --- Простая оценка ---
@@ -1140,6 +1255,9 @@ void runMrecoilTemplateFit(const std::vector<std::pair<double, double>> &vSignal
     std::cout << "[Fit]   nS (expected)= " << expectedNS << "\n";
     std::cout << "[Fit]   nB (expected)= " << expectedNB << "\n";
     std::cout << "[Fit] -----------------------------------------------------\n";
+    std::cout << "[Fit]   Фон (Bkg):  chi2 / NDF = " << chi2B << "\n";
+    std::cout << "[Fit]   Сигнал:     chi2 / NDF = " << chi2S << "\n";
+    std::cout << "[Fit] -----------------------------------------------------\n";
     std::cout << "[Fit]   NLL (H0, фон):      " << nll_b << "\n";
     std::cout << "[Fit]   NLL (H1, сигн+фон): " << nll_sb << "\n";
     std::cout << "[Fit]   q0 = 2*(NLL_b - NLL_sb) = " << q0 << "\n";
@@ -1149,7 +1267,7 @@ void runMrecoilTemplateFit(const std::vector<std::pair<double, double>> &vSignal
     std::cout << "[Fit] =====================================================\n\n";
 
     // =========================================================================
-    // ШАГ 10: ВИЗУАЛИЗАЦИЯ
+    // ШАГ 11: ВИЗУАЛИЗАЦИЯ
     // =========================================================================
     //
     // RooPlot это объект для отрисовки данных и PDF поверх одной оси.
@@ -1235,8 +1353,8 @@ void runMrecoilTemplateFit(const std::vector<std::pair<double, double>> &vSignal
     info->AddText(Form("Z (LRT)    = %.2f #sigma", significance_lrt));
     info->Draw();
 
-    cFit->SaveAs(outputPath.c_str());
-    std::cout << "[Fit] График сохранён: " << outputPath << "\n";
+    cFit->SaveAs((outputPath + "/template_fit_recoil.pdf").c_str());
+    std::cout << "[Fit] График сохранен: " << outputPath << "/template_fit_recoil.pdf\n";
 
     // =========================================================================
     // ОЧИСТКА ПАМЯТИ
@@ -2105,8 +2223,8 @@ int main(int argc, char *argv[]) {
     drawRecoilStack(processRecoilHists, RECOIL_STACK_ORDER, stackOutput);
 
     // Запуск шаблонного фита на накопленных данных
-    std::string fitOutput = (fs::path(outputBaseDir) / "template_fit_recoil.pdf").string();
-    runMrecoilTemplateFit(vMrecoil_Signal_Weighted, vMrecoil_Bkg_Weighted, fitOutput);
+    runMrecoilTemplateFit(vMrecoil_Signal_Weighted, vMrecoil_Bkg_Weighted,
+                          fs::path(outputBaseDir).string());
 
     // Очистка
     for (auto &p : processRecoilHists)
