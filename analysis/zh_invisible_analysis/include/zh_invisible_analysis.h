@@ -58,7 +58,7 @@ const double COS_THETA_Z_CUT = 0.7;
 
 // --- 9. Окно инвариантной массы диджета (ГэВ) ---
 #define APPLY_MAIN_DIJET_MASS_WINDOW true
-#define DIJET_MASS_WINDOW_MIN_GEV 78.0
+#define DIJET_MASS_WINDOW_MIN_GEV 75.0
 #define DIJET_MASS_WINDOW_MAX_GEV 100.0
 
 // --- 10. Кат на Pmiss ---
@@ -69,7 +69,7 @@ const double PMISS_CUT_MAX_GEV = 70.0;
 // --- 11. Окно массы отдачи (ГэВ) ---
 #define APPLY_MAIN_RECOIL_MASS_WINDOW false
 #define RECOIL_MASS_WINDOW_MIN_GEV 100.0
-#define RECOIL_MASS_WINDOW_MAX_GEV 165.0
+#define RECOIL_MASS_WINDOW_MAX_GEV 155.0
 
 // --- 12. Эллиптический кат на плоскости M_jj vs M_recoil ---
 #define APPLY_MAIN_ELLIPSE_CUT false
@@ -355,11 +355,11 @@ struct IsoElectronStats {
 
 const double LUMINOSITY_FB1 = 5050.0;
 
-const int RECOIL_STACK_BINS = 70;
+const int RECOIL_STACK_BINS = 25;
 const double RECOIL_STACK_MIN_GEV = RECOIL_MASS_WINDOW_MIN_GEV;
 const double RECOIL_STACK_MAX_GEV = RECOIL_MASS_WINDOW_MAX_GEV;
 const double RECOIL_STACK_MIN_Y = 1e-2;
-const double RECOIL_STACK_MAX_Y = 30000;
+const double RECOIL_STACK_MAX_Y = 100000;
 
 const bool RECOIL_STACK_LOG_Y = true;
 
@@ -390,26 +390,25 @@ std::map<std::string, ProcessInfo> getProcessDatabase() {
     db["merged_E240_4f_ww_h0cuxx.root"] = ProcessInfo{"4f_ww_h0cuxx", 47.6774, kMagenta - 2, 1001};
     db["merged_E240_4f_zz_h0dtdt.root"] = ProcessInfo{"4f_zz_h0dtdt", 6.4182, kCyan + 1, 1001};
     db["merged_E240_nunuHX.root"] = ProcessInfo{"nunuHX", 0.2954, kYellow, 1001};
-    db["merged_E240_qqHinvi.root"] = ProcessInfo{"qqHinvi (signal)", 0.0072, kRed + 1, 3005};
+    db["merged_E240_qqHinvi.root"] = ProcessInfo{"qqHinvi (signal)", 0.0054, kRed + 1, 3005};
 
     return db;
 }
 
-// Порядок процессов в стек гистограмме
-const std::vector<std::string> RECOIL_STACK_ORDER = {
-    "E240_qqHinvi",     "E240_4f_zz_h0dtdt", "E240_4f_sze_sl0uu", "E240_4f_ww_h0cuxx",    "E240_qq",
-    "E240_4f_sw_sl0qq", "E240_qqHX",         "E240_nunuHX",       "E240_4f_sznu_sl0nu_up"};
+// Порядок процессов в стек гистограмме (процессы с малой статистикой после отборов не строим)
+const std::vector<std::string> RECOIL_STACK_ORDER = {"E240_qqHX", "E240_4f_sw_sl0qq", "E240_nunuHX",
+                                                     "E240_4f_sznu_sl0nu_up", "E240_qqHinvi"};
 
 // =============================================================================
 // НАСТРОЙКИ ШАБЛОННОГО ФИТА Mrecoil (RooFit)
 // =============================================================================
 // Диапазон фита [ГэВ]
 const double FIT_MRECOIL_MIN = 100.0;
-const double FIT_MRECOIL_MAX = 165.0;
+const double FIT_MRECOIL_MAX = 155.0;
 
 // Параметры RooKeysPdf: адаптивность ядра.
 // Чем больше значение, тем шире ядро и тем более гладкий шаблон.
-const double FIT_KEYSPDF_ADAPTIVITY_BGD = 4.0;
+const double FIT_KEYSPDF_ADAPTIVITY_BGD = 5.0;
 const double FIT_KEYSPDF_ADAPTIVITY_SIGNAL = 1.0;
 
 // Использовать ли зеркальное отражение ядра на границах диапазона.

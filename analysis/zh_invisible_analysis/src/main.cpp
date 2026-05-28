@@ -477,7 +477,7 @@ void drawRecoilStack(const std::map<std::string, std::pair<TH1F *, ProcessInfo>>
 
     THStack *stack =
         new THStack("recoilStack", "Recoil Mass Distribution;M_{recoil} [GeV];Expected events");
-    TLegend *leg = new TLegend(0.75, 0.4, 0.95, 0.88);
+    TLegend *leg = new TLegend(0.75, 0.7, 0.95, 0.88);
     leg->SetFillColor(0);
     leg->SetBorderSize(1);
 
@@ -515,23 +515,26 @@ void drawRecoilStack(const std::map<std::string, std::pair<TH1F *, ProcessInfo>>
             }
             tempHists.push_back(hForStack); // Сохраняем чтобы потом почистить
 
-            // Применяем стиль и добавляем в стек
-            hForStack->SetFillColor(info.color);
-            hForStack->SetFillStyle(info.fillStyle);
-            hForStack->SetMarkerStyle(21);
-            hForStack->SetMarkerColor(info.color);
-            hForStack->SetLineWidth(1);
-            stack->Add(hForStack);
-            leg->AddEntry(hForStack, info.legendName.c_str(), "f");
+            // Применяем стиль и добавляем в стек, сигнал не добавляем
+            if (info.legendName.find("signal") == std::string::npos) {
+                hForStack->SetFillColor(info.color);
+                hForStack->SetFillStyle(info.fillStyle);
+                hForStack->SetMarkerStyle(21);
+                hForStack->SetMarkerColor(info.color);
+                hForStack->SetLineWidth(1);
+                stack->Add(hForStack);
+                leg->AddEntry(hForStack, info.legendName.c_str(), "f");
+            }
 
             // Клонируем сигнал чтобы отрисовать его от низа стековой гистограммы и настраиваем
             // параметры отображения
             if (info.legendName.find("signal") != std::string::npos) {
                 signalHistBottom = (TH1F *)hForStack->Clone("signal_bottom");
                 signalHistBottom->SetFillStyle(0);
+                signalHistBottom->SetLineStyle(7);
                 signalHistBottom->SetLineWidth(3);
                 signalHistBottom->SetLineColor(info.color);
-                leg->AddEntry(signalHistBottom, "Signal (overlay)", "L");
+                leg->AddEntry(signalHistBottom, "Signal", "L");
             }
         }
     }
