@@ -414,8 +414,14 @@ const double FIT_KEYSPDF_ADAPTIVITY_SIGNAL = 1.0;
 // Использовать ли зеркальное отражение ядра на границах диапазона.
 const bool FIT_KEYSPDF_MIRROR = false;
 
-// Доля сигнала в псевдоданных (параметр mu).
-const double FIT_PSEUDO_MU = 20.0;
+// Используется в runMrecoilTemplateFit() для единичного фита.
+const double FIT_PSEUDO_MU = 11.0;
+
+// Настройки для сканирования по mu
+const double SCAN_MU_MIN = 0.0;
+const double SCAN_MU_MAX = 15.0;
+const double SCAN_MU_STEP = 0.5;
+const double SCAN_CL_TARGET = 0.05; // 95% CL соответствует p-value = 0.05
 
 // Настройки визуализации
 const int FIT_PLOT_BINS = 65;

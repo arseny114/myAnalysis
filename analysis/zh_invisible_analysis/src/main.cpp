@@ -1392,6 +1392,298 @@ void runMrecoilTemplateFit(const std::vector<std::pair<double, double>> &vSignal
         delete fitResSB;
 }
 
+// =============================================================================
+// ФУНКЦИЯ runMrecoilScanMu
+// =============================================================================
+//
+// Выполняет сканирование по параметру mu (доля сигнала) для построения
+// зависимости p-value от mu и определения чувствительности на уровне 95% CL.
+//
+// ВХОДНЫЕ ДАННЫЕ:
+//   vSignal    - MC-события процесса qqHinvi, пары (M_recoil, вес).
+//   vBkg       - MC-события всех фоновых процессов, пары (M_recoil, вес).
+//   v_qqHX     - MC-события процесса qqHX, пары (M_recoil, вес).
+//   outputPath - путь для сохранения PDF с графиком p-value vs mu.
+//
+// АЛГОРИТМ:
+//   1. Для каждого значения mu в диапазоне [SCAN_MU_MIN, SCAN_MU_MAX] с шагом SCAN_MU_STEP:
+//      a. Формируем псевдоданные как смесь фона и сигнала с данным mu
+//      b. Выполняем фит только фоном (H0: nS=0), получаем NLL_b
+//      c. Выполняем фит сигнал+фон (H1: nS,nB свободны), получаем NLL_sb
+//      d. Вычисляем тестовую статистику q0 = 2*(NLL_b - NLL_sb)
+//      e. Вычисляем p-value = 1 - CDF_χ²(q0; ndf=1)
+//   2. Строим график p-value(mu)
+//   3. Находим mu_95, при котором p-value = 0.05 (95% CL)
+//
+// =============================================================================
+void runMrecoilScanMu(const std::vector<std::pair<double, double>> &vSignal,
+                      const std::vector<std::pair<double, double>> &vBkg,
+                      const std::vector<std::pair<double, double>> &v_qqHX,
+                      const std::string &outputPath) {
+
+    std::cout << "\n[Scan] ====================================================\n";
+    std::cout << "[Scan] Запуск сканирования по mu\n";
+    std::cout << "[Scan] Диапазон mu: [" << SCAN_MU_MIN << ", " << SCAN_MU_MAX << "]\n";
+    std::cout << "[Scan] Шаг mu: " << SCAN_MU_STEP << "\n";
+    std::cout << "[Scan] Целевой CL: " << (1.0 - SCAN_CL_TARGET) * 100
+              << "% (p-value = " << SCAN_CL_TARGET << ")\n";
+
+    // =========================================================================
+    // ПОДГООВКА: наблюдаемая переменная и шаблоны
+    // =========================================================================
+    RooRealVar Mrecoil("Mrecoil", "M_{recoil} [GeV]", FIT_MRECOIL_MIN, FIT_MRECOIL_MAX);
+    Mrecoil.setRange("fitRange", FIT_MRECOIL_MIN, FIT_MRECOIL_MAX);
+
+    RooRealVar wVar("eventWeight", "Event weight", 1e-9, 1e9);
+    RooArgSet argSet(Mrecoil, wVar);
+
+    // Шаблон сигнала
+    RooDataSet *dsSignal =
+        new RooDataSet("dsSignal", "Signal template MC", argSet, RooFit::WeightVar(wVar));
+    for (const auto &entry : vSignal) {
+        if (entry.first < FIT_MRECOIL_MIN || entry.first > FIT_MRECOIL_MAX)
+            continue;
+        Mrecoil.setVal(entry.first);
+        dsSignal->add(argSet, entry.second);
+    }
+
+    // Шаблон фона (с учётом qqHX и вычитанием чистого сигнала)
+    RooDataSet *dsBkg =
+        new RooDataSet("dsBkg", "Background template MC", argSet, RooFit::WeightVar(wVar));
+    for (const auto &entry : vBkg) {
+        if (entry.first < FIT_MRECOIL_MIN || entry.first > FIT_MRECOIL_MAX)
+            continue;
+        Mrecoil.setVal(entry.first);
+        dsBkg->add(argSet, entry.second);
+    }
+    for (const auto &entry : v_qqHX) {
+        if (entry.first < FIT_MRECOIL_MIN || entry.first > FIT_MRECOIL_MAX)
+            continue;
+        Mrecoil.setVal(entry.first);
+        dsBkg->add(argSet, entry.second);
+    }
+    for (const auto &entry : vSignal) {
+        if (entry.first < FIT_MRECOIL_MIN || entry.first > FIT_MRECOIL_MAX)
+            continue;
+        Mrecoil.setVal(entry.first);
+        dsBkg->add(argSet, -entry.second);
+    }
+
+    double sumW_S = dsSignal->sumEntries();
+    double sumW_B = dsBkg->sumEntries();
+
+    std::cout << "[Scan] sumW_S (сигнал): " << sumW_S << "\n";
+    std::cout << "[Scan] sumW_B (фон): " << sumW_B << "\n";
+
+    if (sumW_S <= 0 || sumW_B <= 0) {
+        std::cerr << "[Scan] Ошибка: суммарные веса равны нулю.\n";
+        delete dsSignal;
+        delete dsBkg;
+        return;
+    }
+
+    // Построение PDF
+    auto mirrorOpt = FIT_KEYSPDF_MIRROR ? RooKeysPdf::MirrorBoth : RooKeysPdf::NoMirror;
+    RooKeysPdf pdfSignal("pdfSignal_scan", "Signal PDF", Mrecoil, *dsSignal, mirrorOpt,
+                         FIT_KEYSPDF_ADAPTIVITY_SIGNAL);
+    RooKeysPdf pdfBkg("pdfBkg_scan", "Background PDF", Mrecoil, *dsBkg, mirrorOpt,
+                      FIT_KEYSPDF_ADAPTIVITY_BGD);
+    pdfSignal.setNormRange("fitRange");
+    pdfBkg.setNormRange("fitRange");
+
+    // Параметры нормировки
+    RooRealVar nS("nS_scan", "Signal yield", 0.0, 0.0, 10.0 * sumW_S * SCAN_MU_MAX);
+    RooRealVar nB("nB_scan", "Background yield", sumW_B, 0.0, 3.0 * sumW_B);
+
+    // Комбинированная модель
+    RooAddPdf model("model_scan", "nS*fs + nB*fb", RooArgList(pdfSignal, pdfBkg),
+                    RooArgList(nS, nB));
+    model.setNormRange("fitRange");
+
+    // Контейнеры для результатов сканирования
+    std::vector<double> muValues;
+    std::vector<double> pValues;
+    std::vector<double> q0Values;
+    std::vector<double> significanceValues;
+
+    // =========================================================================
+    // СКАНИРОВАНИЕ ПО MU
+    // =========================================================================
+    int nSteps = static_cast<int>((SCAN_MU_MAX - SCAN_MU_MIN) / SCAN_MU_STEP) + 1;
+
+    for (int i = 0; i < nSteps; ++i) {
+        double mu = SCAN_MU_MIN + i * SCAN_MU_STEP;
+
+        // Формируем псевдоданные для данного mu
+        RooDataSet *dsData =
+            new RooDataSet("dsData_scan", "Pseudo-data", argSet, RooFit::WeightVar(wVar));
+
+        for (const auto &entry : vBkg) {
+            if (entry.first < FIT_MRECOIL_MIN || entry.first > FIT_MRECOIL_MAX)
+                continue;
+            Mrecoil.setVal(entry.first);
+            dsData->add(argSet, entry.second);
+        }
+        if (mu > 0.0) {
+            for (const auto &entry : vSignal) {
+                if (entry.first < FIT_MRECOIL_MIN || entry.first > FIT_MRECOIL_MAX)
+                    continue;
+                Mrecoil.setVal(entry.first);
+                dsData->add(argSet, mu * entry.second);
+            }
+        }
+
+        double sumW_Data = dsData->sumEntries();
+
+        // Фит H0: только фон (nS = 0)
+        nS.setVal(0.0);
+        nS.setConstant(kTRUE);
+        nB.setVal(sumW_B);
+
+        RooFitResult *fitResB =
+            model.fitTo(*dsData, RooFit::Extended(kTRUE), RooFit::Range("fitRange"),
+                        RooFit::SumW2Error(kTRUE), RooFit::Save(kTRUE), RooFit::PrintLevel(-1));
+
+        double nll_b = fitResB ? fitResB->minNll() : 0.0;
+        if (fitResB)
+            delete fitResB;
+
+        // Фит H1: сигнал + фон
+        nS.setConstant(kFALSE);
+        nS.setVal(mu * sumW_S);
+        nB.setVal(sumW_B);
+
+        RooFitResult *fitResSB =
+            model.fitTo(*dsData, RooFit::Extended(kTRUE), RooFit::Range("fitRange"),
+                        RooFit::SumW2Error(kTRUE), RooFit::Save(kTRUE), RooFit::PrintLevel(-1));
+
+        double nll_sb = fitResSB ? fitResSB->minNll() : 0.0;
+        if (fitResSB)
+            delete fitResSB;
+
+        // Вычисляем q0 и p-value
+        double q0 = 2.0 * (nll_b - nll_sb);
+        if (q0 < 0.0)
+            q0 = 0.0;
+
+        // p-value из χ² распределения с 1 степенью свободы
+        // P(χ² > q0) = 1 - CDF(q0) = 1 - (1 - erf(sqrt(q0/2))) = erf(sqrt(q0/2))
+        double sqrt_q0 = std::sqrt(q0);
+        double pValue = std::erfc(sqrt_q0 / std::sqrt(2.0));
+
+        double significance = std::sqrt(q0);
+
+        muValues.push_back(mu);
+        pValues.push_back(pValue);
+        q0Values.push_back(q0);
+        significanceValues.push_back(significance);
+
+        if (i % 10 == 0 || i == nSteps - 1) {
+            std::cout << "[Scan] mu = " << mu << ", q0 = " << q0 << ", p-value = " << pValue
+                      << ", Z = " << significance << " σ\n";
+        }
+
+        delete dsData;
+    }
+
+    // =========================================================================
+    // ПОИСК MU_95 (где p-value = 0.05)
+    // =========================================================================
+    double mu95 = -1.0;
+    for (size_t i = 0; i < muValues.size() - 1; ++i) {
+        if ((pValues[i] >= SCAN_CL_TARGET && pValues[i + 1] <= SCAN_CL_TARGET) ||
+            (pValues[i] <= SCAN_CL_TARGET && pValues[i + 1] >= SCAN_CL_TARGET)) {
+            // Линейная интерполяция
+            double frac = (SCAN_CL_TARGET - pValues[i]) / (pValues[i + 1] - pValues[i]);
+            mu95 = muValues[i] + frac * (muValues[i + 1] - muValues[i]);
+            break;
+        }
+    }
+
+    std::cout << "\n[Scan] ====================================================\n";
+    if (mu95 > 0) {
+        std::cout << "[Scan] Найдено mu_95 = " << mu95 << " (95% CL)\n";
+    } else {
+        std::cout << "[Scan] mu_95 не найдено в заданном диапазоне\n";
+    }
+    std::cout << "[Scan] ====================================================\n";
+
+    // =========================================================================
+    // ВИЗУАЛИЗАЦИЯ
+    // =========================================================================
+    TCanvas *cScan = new TCanvas("cMuScan", "Muon Scan - p-value vs mu", 900, 700);
+    cScan->SetLeftMargin(0.13);
+    cScan->SetRightMargin(0.05);
+    cScan->SetBottomMargin(0.12);
+    cScan->SetTopMargin(0.08);
+
+    // Создаём график
+    TGraph *grPValue = new TGraph(muValues.size(), muValues.data(), pValues.data());
+    grPValue->SetTitle(";#mu;p-value");
+    grPValue->SetMarkerStyle(20);
+    grPValue->SetMarkerSize(1.0);
+    grPValue->SetLineColor(kBlue);
+    grPValue->SetLineWidth(2);
+
+    // Устанавливаем диапазон Y
+    grPValue->GetYaxis()->SetRangeUser(0.0, 1.0);
+    grPValue->GetXaxis()->SetTitle("#mu");
+    grPValue->GetYaxis()->SetTitle("p-value");
+
+    grPValue->Draw("APL");
+
+    // Горизонтальная линия на уровне p-value = 0.05
+    TLine *lineCL = new TLine(SCAN_MU_MIN, SCAN_CL_TARGET, SCAN_MU_MAX, SCAN_CL_TARGET);
+    lineCL->SetLineColor(kRed);
+    lineCL->SetLineStyle(kDashed);
+    lineCL->SetLineWidth(2);
+    lineCL->Draw("SAME");
+
+    // Вертикальная линия на mu_95 (если найдено)
+    TLine *lineMu95 = nullptr;
+    if (mu95 > 0 && mu95 >= SCAN_MU_MIN && mu95 <= SCAN_MU_MAX) {
+        lineMu95 = new TLine(mu95, 0.0, mu95, 1.0);
+        lineMu95->SetLineColor(kGreen + 1);
+        lineMu95->SetLineStyle(kDashed);
+        lineMu95->SetLineWidth(2);
+        lineMu95->Draw("SAME");
+    }
+
+    // Текст с результатами
+    TLatex latex;
+    latex.SetNDC();
+    latex.SetTextFont(42);
+    latex.SetTextSize(0.035);
+
+    std::string resultText = mu95 > 0 ? Form("#mu_{95} = %.2f", mu95) : "#mu_{95} not found";
+    latex.DrawLatex(0.15, 0.85, resultText.c_str());
+    latex.DrawLatex(0.15, 0.80, Form("95%% CL: p-value = %.2f", SCAN_CL_TARGET));
+
+    // Легенда
+    TLegend *leg = new TLegend(0.6, 0.8, 0.98, 0.98);
+    leg->SetBorderSize(1);
+    leg->SetFillColor(0);
+    leg->SetTextSize(0.03);
+    leg->AddEntry(grPValue, "p-value vs #mu", "pl");
+    leg->AddEntry(lineCL, "p-value = 0.05 (95% CL)", "l");
+    if (lineMu95)
+        leg->AddEntry(lineMu95, Form("#mu_{95} = %.2f", mu95), "l");
+    leg->Draw();
+
+    cScan->SaveAs((outputPath + "/pvalue_vs_mu.pdf").c_str());
+    std::cout << "[Scan] График сохранен: " << outputPath << "/pvalue_vs_mu.pdf\n";
+
+    // Очистка
+    delete leg;
+    delete lineCL;
+    if (lineMu95)
+        delete lineMu95;
+    delete grPValue;
+    delete cScan;
+    delete dsSignal;
+    delete dsBkg;
+}
+
 // Извлечение имени процесса из пути к файлу
 // Формат файла: merged_E240_qqHX.root
 std::string extractProcessName(const std::string &filepath) {
@@ -2258,6 +2550,10 @@ int main(int argc, char *argv[]) {
     // Запуск шаблонного фита на накопленных данных
     runMrecoilTemplateFit(vMrecoil_Signal_Weighted, vMrecoil_Bkg_Weighted, vMrecoil_qqHX_Weighted,
                           fs::path(outputBaseDir).string());
+
+    // Запуск сканирования по mu для определения чувствительности на 95% CL
+    runMrecoilScanMu(vMrecoil_Signal_Weighted, vMrecoil_Bkg_Weighted, vMrecoil_qqHX_Weighted,
+                     fs::path(outputBaseDir).string());
 
     // Очистка
     for (auto &p : processRecoilHists)
