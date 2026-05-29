@@ -1263,6 +1263,7 @@ void runMrecoilTemplateFit(const std::vector<std::pair<double, double>> &vSignal
     // Значимость в σ: Z_LRT = sqrt(q0)
     //
     double q0 = 2.0 * (nll_b - nll_sb);
+    double pValue = TMath::Prob(q0, 1);
     double significance_lrt = std::sqrt(std::max(0.0, q0));
 
     std::cout << "\n[Fit] =====================================================\n";
@@ -1279,6 +1280,7 @@ void runMrecoilTemplateFit(const std::vector<std::pair<double, double>> &vSignal
     std::cout << "[Fit]   NLL (H0, фон):      " << nll_b << "\n";
     std::cout << "[Fit]   NLL (H1, сигн+фон): " << nll_sb << "\n";
     std::cout << "[Fit]   q0 = 2*(NLL_b - NLL_sb) = " << q0 << "\n";
+    std::cout << "[Fit]   p-value (H0): = " << pValue << "\n";
     std::cout << "[Fit] -----------------------------------------------------\n";
     std::cout << "[Fit]   Значимость (простая):  Z = " << significance_approx << " σ\n";
     std::cout << "[Fit]   Значимость (LRT):      Z = " << significance_lrt << " σ\n";
@@ -1358,7 +1360,7 @@ void runMrecoilTemplateFit(const std::vector<std::pair<double, double>> &vSignal
     leg->Draw();
 
     // Информационный блок с результатами фита
-    TPaveText *info = new TPaveText(0.76, 0.7, 0.98, 0.83, "NDC NB");
+    TPaveText *info = new TPaveText(0.76, 0.6, 0.98, 0.83, "NDC NB");
     info->SetFillColor(0);
     info->SetFillStyle(1001);
     info->SetBorderSize(1);
@@ -1367,8 +1369,12 @@ void runMrecoilTemplateFit(const std::vector<std::pair<double, double>> &vSignal
     info->AddText(Form("mu = %.2f", FIT_PSEUDO_MU));
     info->AddText(Form("nS = %.1f #pm %.1f", fit_nS, fit_nS_err));
     info->AddText(Form("nB = %.1f #pm %.1f", fit_nB, fit_nB_err));
+    info->AddText(Form("#chi^{2}_{bkg} / NDF = %.3f", chi2B));
+    info->AddText(Form("#chi^{2}_{sig} / NDF = %.3f", chi2S));
+    info->AddText(Form("nB = %.1f #pm %.1f", fit_nB, fit_nB_err));
     info->AddText(Form("Z (simple) = %.2f #sigma", significance_approx));
     info->AddText(Form("Z (LRT)    = %.2f #sigma", significance_lrt));
+    info->AddText(Form("p-value    = %.3g", pValue));
     info->Draw();
 
     cFit->SaveAs((outputPath + "/template_fit_recoil.pdf").c_str());
@@ -1569,7 +1575,7 @@ void runMrecoilScanMu(const std::vector<std::pair<double, double>> &vSignal,
         // p-value из χ² распределения с 1 степенью свободы
         // P(χ² > q0) = 1 - CDF(q0) = 1 - (1 - erf(sqrt(q0/2))) = erf(sqrt(q0/2))
         double sqrt_q0 = std::sqrt(q0);
-        double pValue = std::erfc(sqrt_q0 / std::sqrt(2.0));
+        double pValue = TMath::Prob(q0, 1);
 
         double significance = std::sqrt(q0);
 

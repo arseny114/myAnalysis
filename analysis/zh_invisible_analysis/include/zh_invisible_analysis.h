@@ -408,14 +408,14 @@ const double FIT_MRECOIL_MAX = 155.0;
 
 // Параметры RooKeysPdf: адаптивность ядра.
 // Чем больше значение, тем шире ядро и тем более гладкий шаблон.
-const double FIT_KEYSPDF_ADAPTIVITY_BGD = 5.0;
-const double FIT_KEYSPDF_ADAPTIVITY_SIGNAL = 1.0;
+const double FIT_KEYSPDF_ADAPTIVITY_BGD = 2.5;
+const double FIT_KEYSPDF_ADAPTIVITY_SIGNAL = 0.1;
 
 // Использовать ли зеркальное отражение ядра на границах диапазона.
 const bool FIT_KEYSPDF_MIRROR = false;
 
 // Используется в runMrecoilTemplateFit() для единичного фита.
-const double FIT_PSEUDO_MU = 11.0;
+const double FIT_PSEUDO_MU = 10.59;
 
 // Настройки для сканирования по mu
 const double SCAN_MU_MIN = 0.0;
