@@ -424,15 +424,15 @@ const double SCAN_MU_STEP = 0.5;
 const double SCAN_CL_TARGET = 0.05; // 95% CL соответствует p-value = 0.05
 
 // Настройки визуализации
-const int FIT_PLOT_BINS = 65;
+const int FIT_PLOT_BINS = 55;
 const bool FIT_PLOT_LOG_Y = false;
 const double FIT_PLOT_YMAX = 2000.0;
 
 // Настройки для гистограмм шаблонов
-const int TEMPLATE_SIGNAL_BINS = 65;
+const int TEMPLATE_SIGNAL_BINS = 55;
 const int TEMPLATE_SIGNAL_TOYMC_MULTIPLIER = 10;
 
-const int TEMPLATE_BACKGROUND_BINS = 65;
+const int TEMPLATE_BACKGROUND_BINS = 55;
 const int TEMPLATE_BACKGROUND_TOYMC_MULTIPLIER = 10;
 
 // Имя выходного файла

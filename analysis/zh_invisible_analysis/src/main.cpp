@@ -1715,6 +1715,7 @@ void printUsage(const char *progName) {
               << "  -h, --help              Показать эту справку\n"
               << "  -o, --output-dir DIR    Базовая директория результатов (по умолчанию: "
                  "../pdf_results)\n"
+              << "  -s, --scan-mu           Запустить сканирование по mu\n"
               << "\nПример:\n"
               << "  " << progName
               << " merged_E240_qqHX.root merged_E240_qq.root merged_E240_qqHinvi.root\n";
@@ -1733,6 +1734,7 @@ int main(int argc, char *argv[]) {
 
     std::vector<std::string> inputFiles;
     std::string outputBaseDir = OUTPUT_BASE_DIR;
+    bool runScanMu = false;
 
     for (int i = 1; i < argc; ++i) {
         std::string arg = argv[i];
@@ -1742,6 +1744,8 @@ int main(int argc, char *argv[]) {
         } else if (arg == "-o" || arg == "--output-dir") {
             if (i + 1 < argc)
                 outputBaseDir = argv[++i];
+        } else if (arg == "-s" || arg == "--scan-mu") {
+            runScanMu = true;
         } else if (arg[0] != '-') {
             inputFiles.push_back(arg);
         } else {
@@ -2552,8 +2556,10 @@ int main(int argc, char *argv[]) {
                           fs::path(outputBaseDir).string());
 
     // Запуск сканирования по mu для определения чувствительности на 95% CL
-    runMrecoilScanMu(vMrecoil_Signal_Weighted, vMrecoil_Bkg_Weighted, vMrecoil_qqHX_Weighted,
-                     fs::path(outputBaseDir).string());
+    if (runScanMu) {
+        runMrecoilScanMu(vMrecoil_Signal_Weighted, vMrecoil_Bkg_Weighted, vMrecoil_qqHX_Weighted,
+                         fs::path(outputBaseDir).string());
+    }
 
     // Очистка
     for (auto &p : processRecoilHists)
