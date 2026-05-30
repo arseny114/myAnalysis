@@ -1015,24 +1015,8 @@ void runMrecoilTemplateFit(const std::vector<std::pair<double, double>> &vSignal
                       RooFit::LineColor(kRed), RooFit::MarkerColor(kRed));
         pdfBkg.plotOn(frameBkg, RooFit::LineColor(kBlue), RooFit::LineWidth(2));
 
-        // Генерируем toy MC из PDF фона с большим числом событий для статистики
-        RooDataSet *toyBgd = pdfBkg.generate(
-            Mrecoil, static_cast<int>(sumW_B * TEMPLATE_BACKGROUND_TOYMC_MULTIPLIER));
-
-        // Создаём гистограммы: исходные данные vs toy MC
-        TH1 *hRawB = dsBkg->createHistogram(
-            "hRawB", Mrecoil, RooFit::Binning(nBinsTempl, FIT_MRECOIL_MIN, FIT_MRECOIL_MAX));
-        TH1 *hToyB = toyBgd->createHistogram(
-            "hToyB", Mrecoil, RooFit::Binning(nBinsTempl, FIT_MRECOIL_MIN, FIT_MRECOIL_MAX));
-
-        // Нормируем toy MC на то же число событий что и исходные данные
-        if (hRawB->Integral() > 0) {
-            double scaleB = hRawB->Integral() / hToyB->Integral();
-            hToyB->Scale(scaleB);
-        }
-
         // Вычисляем Chi2/NDF
-        chi2B = hRawB->Chi2Test(hToyB, "CHI2/NDF");
+        chi2B = frameBkg->chiSquare();
 
         // Сохраняем график
         TCanvas *cBkg = new TCanvas("cBkg", "Background Template", 800, 600);
@@ -1049,9 +1033,6 @@ void runMrecoilTemplateFit(const std::vector<std::pair<double, double>> &vSignal
         std::cout << "[Fit] График сохранен: " << outputPath << "/template_background.pdf\n";
 
         delete cBkg;
-        delete toyBgd;
-        delete hRawB;
-        delete hToyB;
         delete frameBkg;
     }
 
@@ -1065,24 +1046,8 @@ void runMrecoilTemplateFit(const std::vector<std::pair<double, double>> &vSignal
                          RooFit::LineColor(kBlue), RooFit::MarkerColor(kBlue));
         pdfSignal.plotOn(frameSig, RooFit::LineColor(kRed), RooFit::LineWidth(2));
 
-        // Генерируем toy MC из PDF сигнала
-        RooDataSet *toySig = pdfSignal.generate(
-            Mrecoil, static_cast<int>(sumW_S * TEMPLATE_SIGNAL_TOYMC_MULTIPLIER));
-
-        // Создаём гистограммы: исходные данные vs toy MC
-        TH1 *hRawS = dsSignal->createHistogram(
-            "hRawS", Mrecoil, RooFit::Binning(nBinsTempl, FIT_MRECOIL_MIN, FIT_MRECOIL_MAX));
-        TH1 *hToyS = toySig->createHistogram(
-            "hToyS", Mrecoil, RooFit::Binning(nBinsTempl, FIT_MRECOIL_MIN, FIT_MRECOIL_MAX));
-
-        // Нормируем toy MC на то же число событий что и исходные данные
-        if (hRawS->Integral() > 0) {
-            double scaleS = hRawS->Integral() / hToyS->Integral();
-            hToyS->Scale(scaleS);
-        }
-
         // Вычисляем Chi2/NDF
-        chi2S = hRawS->Chi2Test(hToyS, "CHI2/NDF");
+        chi2S = frameSig->chiSquare();
 
         // Сохраняем график
         TCanvas *cSig = new TCanvas("cSig", "Signal Template", 800, 600);
@@ -1099,9 +1064,6 @@ void runMrecoilTemplateFit(const std::vector<std::pair<double, double>> &vSignal
         std::cout << "[Fit] График сохранен: " << outputPath << "/template_signal.pdf\n";
 
         delete cSig;
-        delete toySig;
-        delete hRawS;
-        delete hToyS;
         delete frameSig;
     }
 
