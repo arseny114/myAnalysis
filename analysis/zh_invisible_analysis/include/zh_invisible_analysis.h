@@ -435,6 +435,19 @@ const int TEMPLATE_SIGNAL_TOYMC_MULTIPLIER = 10;
 const int TEMPLATE_BACKGROUND_BINS = 55;
 const int TEMPLATE_BACKGROUND_TOYMC_MULTIPLIER = 10;
 
+// Настройки для сканирования параметров адаптивности и числа бинов
+const int SCAN_BINS_MIN = 20;
+const int SCAN_BINS_MAX = 100;
+const int SCAN_BINS_STEP = 5;
+
+const double SCAN_ADAPT_SIGNAL_MIN = 0.05;
+const double SCAN_ADAPT_SIGNAL_MAX = 1.0;
+const double SCAN_ADAPT_SIGNAL_STEP = 0.05;
+
+const double SCAN_ADAPT_BGD_MIN = 0.5;
+const double SCAN_ADAPT_BGD_MAX = 5.0;
+const double SCAN_ADAPT_BGD_STEP = 0.25;
+
 // Имя выходного файла
 const std::string FIT_OUTPUT_FILENAME = "template_fit_recoil.pdf";
 

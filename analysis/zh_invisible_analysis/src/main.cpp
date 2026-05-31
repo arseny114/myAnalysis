@@ -1652,6 +1652,188 @@ void runMrecoilScanMu(const std::vector<std::pair<double, double>> &vSignal,
     delete dsBkg;
 }
 
+// =============================================================================
+// ФУНКЦИЯ runMrecoilScanAdapt
+// =============================================================================
+//
+// Выполняет сканирование параметров адаптивности RooKeysPdf и числа бинов
+// для шаблонов сигнала и фона.
+//
+// ВХОДНЫЕ ДАННЫЕ:
+//   vSignal    - MC-события процесса qqHinvi, пары (M_recoil, вес).
+//   vBkg       - MC-события всех фоновых процессов, пары (M_recoil, вес).
+//   v_qqHX     - MC-события процесса qqHX, пары (M_recoil, вес).
+//   outputPath - путь для сохранения результатов (CSV и PDF).
+//
+// АЛГОРИТМ:
+//   1. Для каждого значения числа бинов nBins в диапазоне [SCAN_BINS_MIN, SCAN_BINS_MAX]:
+//      a. Для каждого значения адаптивности сигнала adaptS в диапазоне [SCAN_ADAPT_SIGNAL_MIN,
+//      SCAN_ADAPT_SIGNAL_MAX]:
+//         i. Для каждого значения адаптивности фона adaptB в диапазоне [SCAN_ADAPT_BGD_MIN,
+//         SCAN_ADAPT_BGD_MAX]:
+//            - Строим шаблоны с данными параметрами
+//            - Вычисляем chi2/NDF для сигнала и фона
+//            - Сохраняем результаты в CSV
+//            - Сохраняем графики для комбинаций с chi2 в диапазоне [1, 2]
+//
+// =============================================================================
+void runMrecoilScanAdapt(const std::vector<std::pair<double, double>> &vSignal,
+                         const std::vector<std::pair<double, double>> &vBkg,
+                         const std::vector<std::pair<double, double>> &v_qqHX,
+                         const std::string &outputPath) {
+
+    std::cout << "\n[ScanAdapt] ====================================================\n";
+    std::cout << "[ScanAdapt] Запуск сканирования параметров адаптивности и бинов\n";
+    std::cout << "[ScanAdapt] Диапазон бинов: [" << SCAN_BINS_MIN << ", " << SCAN_BINS_MAX
+              << "] шаг " << SCAN_BINS_STEP << "\n";
+    std::cout << "[ScanAdapt] Адаптивность сигнала: [" << SCAN_ADAPT_SIGNAL_MIN << ", "
+              << SCAN_ADAPT_SIGNAL_MAX << "] шаг " << SCAN_ADAPT_SIGNAL_STEP << "\n";
+    std::cout << "[ScanAdapt] Адаптивность фона: [" << SCAN_ADAPT_BGD_MIN << ", "
+              << SCAN_ADAPT_BGD_MAX << "] шаг " << SCAN_ADAPT_BGD_STEP << "\n";
+
+    // Директории для резульатов
+    std::string backgroundOutput = (fs::path(outputPath) / "scanFitParams" / "background").string();
+    std::string signalOutput = (fs::path(outputPath) / "scanFitParams" / "signal").string();
+    fs::create_directories(backgroundOutput);
+    fs::create_directories(signalOutput);
+
+    // Подготовка: наблюдаемая переменная
+    RooRealVar Mrecoil("Mrecoil", "M_{recoil} [GeV]", FIT_MRECOIL_MIN, FIT_MRECOIL_MAX);
+    Mrecoil.setRange("fitRange", FIT_MRECOIL_MIN, FIT_MRECOIL_MAX);
+
+    RooRealVar wVar("eventWeight", "Event weight", 1e-9, 1e9);
+    RooArgSet argSet(Mrecoil, wVar);
+
+    // Шаблон сигнала
+    RooDataSet *dsSignal =
+        new RooDataSet("dsSignal", "Signal template MC", argSet, RooFit::WeightVar(wVar));
+    for (const auto &entry : vSignal) {
+        if (entry.first < FIT_MRECOIL_MIN || entry.first > FIT_MRECOIL_MAX)
+            continue;
+        Mrecoil.setVal(entry.first);
+        dsSignal->add(argSet, entry.second);
+    }
+
+    // Шаблон фона (с учётом qqHX и вычитанием чистого сигнала)
+    RooDataSet *dsBkg =
+        new RooDataSet("dsBkg", "Background template MC", argSet, RooFit::WeightVar(wVar));
+    for (const auto &entry : vBkg) {
+        if (entry.first < FIT_MRECOIL_MIN || entry.first > FIT_MRECOIL_MAX)
+            continue;
+        Mrecoil.setVal(entry.first);
+        dsBkg->add(argSet, entry.second);
+    }
+    for (const auto &entry : v_qqHX) {
+        if (entry.first < FIT_MRECOIL_MIN || entry.first > FIT_MRECOIL_MAX)
+            continue;
+        Mrecoil.setVal(entry.first);
+        dsBkg->add(argSet, entry.second);
+    }
+    for (const auto &entry : vSignal) {
+        if (entry.first < FIT_MRECOIL_MIN || entry.first > FIT_MRECOIL_MAX)
+            continue;
+        Mrecoil.setVal(entry.first);
+        dsBkg->add(argSet, -entry.second);
+    }
+
+    double sumW_S = dsSignal->sumEntries();
+    double sumW_B = dsBkg->sumEntries();
+
+    std::cout << "[ScanAdapt] sumW_S (сигнал): " << sumW_S << "\n";
+    std::cout << "[ScanAdapt] sumW_B (фон): " << sumW_B << "\n";
+
+    if (sumW_S <= 0 || sumW_B <= 0) {
+        std::cerr << "[ScanAdapt] Ошибка: суммарные веса равны нулю.\n";
+        delete dsSignal;
+        delete dsBkg;
+        return;
+    }
+
+    int totalIterations = 0;
+
+    // Скан по параметрам
+    for (int nBins = SCAN_BINS_MIN; nBins <= SCAN_BINS_MAX; nBins += SCAN_BINS_STEP) {
+        for (double adaptS = SCAN_ADAPT_SIGNAL_MIN; adaptS <= SCAN_ADAPT_SIGNAL_MAX;
+             adaptS += SCAN_ADAPT_SIGNAL_STEP) {
+            for (double adaptB = SCAN_ADAPT_BGD_MIN; adaptB <= SCAN_ADAPT_BGD_MAX;
+                 adaptB += SCAN_ADAPT_BGD_STEP) {
+
+                totalIterations++;
+
+                // Построение PDF с текущими параметрами
+                auto mirrorOpt = FIT_KEYSPDF_MIRROR ? RooKeysPdf::MirrorBoth : RooKeysPdf::NoMirror;
+                RooKeysPdf pdfSignal("pdfSignal_scan", "Signal PDF", Mrecoil, *dsSignal, mirrorOpt,
+                                     adaptS);
+                RooKeysPdf pdfBkg("pdfBkg_scan", "Background PDF", Mrecoil, *dsBkg, mirrorOpt,
+                                  adaptB);
+                pdfSignal.setNormRange("fitRange");
+                pdfBkg.setNormRange("fitRange");
+
+                // Проверка качества шаблона сигнала
+                RooPlot *frameSig = Mrecoil.frame(RooFit::Title("Signal Template Quality Check"));
+                dsSignal->plotOn(frameSig, RooFit::Binning(nBins), RooFit::MarkerStyle(22),
+                                 RooFit::LineColor(kBlue), RooFit::MarkerColor(kBlue));
+                pdfSignal.plotOn(frameSig, RooFit::LineColor(kRed), RooFit::LineWidth(2));
+                double chi2S = frameSig->chiSquare();
+
+                // Проверка качества шаблона фона
+                RooPlot *frameBkg =
+                    Mrecoil.frame(RooFit::Title("Background Template Quality Check"));
+                dsBkg->plotOn(frameBkg, RooFit::Binning(nBins), RooFit::MarkerStyle(21),
+                              RooFit::LineColor(kRed), RooFit::MarkerColor(kRed));
+                pdfBkg.plotOn(frameBkg, RooFit::LineColor(kBlue), RooFit::LineWidth(2));
+                double chi2B = frameBkg->chiSquare();
+
+                // Сохраняем графики
+                std::string sigPlotName =
+                    Form("template_signal_nBins%d_aS%.2f_aB%.2f.pdf", nBins, adaptS, adaptB);
+                TCanvas *cSig = new TCanvas("cSig_scan", "Signal Template", 800, 600);
+                frameSig->Draw();
+                TLatex latexS;
+                latexS.SetNDC();
+                latexS.SetTextFont(42);
+                latexS.SetTextSize(0.04);
+                latexS.DrawLatex(0.15, 0.85, Form("#chi^{2}/ndf = %.3f", chi2S));
+                latexS.DrawLatex(0.15, 0.80, Form("n_{bins} = %d", nBins));
+                latexS.DrawLatex(0.15, 0.75, Form("adapt = %.1f", adaptS));
+                cSig->SaveAs((signalOutput + "/" + sigPlotName).c_str());
+
+                std::string bkgPlotName =
+                    Form("template_background_nBins%d_aS%.2f_aB%.2f.pdf", nBins, adaptS, adaptB);
+                TCanvas *cBkg = new TCanvas("cBkg_scan", "Background Template", 800, 600);
+                frameBkg->Draw();
+                TLatex latexB;
+                latexB.SetNDC();
+                latexB.SetTextFont(42);
+                latexB.SetTextSize(0.04);
+                latexB.DrawLatex(0.15, 0.85, Form("#chi^{2}/ndf = %.3f", chi2B));
+                latexS.DrawLatex(0.15, 0.80, Form("n_{bins} = %d", nBins));
+                latexS.DrawLatex(0.15, 0.75, Form("adapt = %.1f", adaptB));
+                cBkg->SaveAs((backgroundOutput + "/" + bkgPlotName).c_str());
+
+                delete cSig;
+                delete cBkg;
+                delete frameSig;
+                delete frameBkg;
+
+                if (totalIterations % 20 == 0) {
+                    std::cout << "[ScanAdapt] Прогресс: " << totalIterations << " итераций."
+                              << "\n";
+                }
+            }
+        }
+    }
+
+    delete dsSignal;
+    delete dsBkg;
+
+    std::cout << "\n[ScanAdapt] ====================================================\n";
+    std::cout << "[ScanAdapt] Сканирование завершено\n";
+    std::cout << "[ScanAdapt] Всего итераций: " << totalIterations << "\n";
+    std::cout << "[ScanAdapt] Графики сохранены в: " << outputPath << "/template_*.pdf\n";
+    std::cout << "[ScanAdapt] ====================================================\n";
+}
+
 // Извлечение имени процесса из пути к файлу
 // Формат файла: merged_E240_qqHX.root
 std::string extractProcessName(const std::string &filepath) {
@@ -1676,17 +1858,19 @@ std::string extractProcessName(const std::string &filepath) {
 
 // Вывод справки по использованию
 void printUsage(const char *progName) {
-    std::cout << "Многофайловый анализ ee -> ZH -> qq + invisible\n\n"
-              << "Использование:\n"
-              << "  " << progName << " file1.root file2.root ... [options]\n\n"
-              << "Опции:\n"
-              << "  -h, --help              Показать эту справку\n"
-              << "  -o, --output-dir DIR    Базовая директория результатов (по умолчанию: "
-                 "../pdf_results)\n"
-              << "  -s, --scan-mu           Запустить сканирование по mu\n"
-              << "\nПример:\n"
-              << "  " << progName
-              << " merged_E240_qqHX.root merged_E240_qq.root merged_E240_qqHinvi.root\n";
+    std::cout
+        << "Многофайловый анализ ee -> ZH -> qq + invisible\n\n"
+        << "Использование:\n"
+        << "  " << progName << " file1.root file2.root ... [options]\n\n"
+        << "Опции:\n"
+        << "  -h, --help                   Показать эту справку\n"
+        << "  -o, --output-dir DIR         Базовая директория результатов (по умолчанию: "
+           "../pdf_results)\n"
+        << "  -s, --scan-mu                Запустить сканирование по mu\n"
+        << "  -a, --scan-fit-params        Запустить сканирование параметров адаптивности и бинов\n"
+        << "\nПример:\n"
+        << "  " << progName
+        << " merged_E240_qqHX.root merged_E240_qq.root merged_E240_qqHinvi.root\n";
 }
 
 // =============================================================================
@@ -1703,6 +1887,7 @@ int main(int argc, char *argv[]) {
     std::vector<std::string> inputFiles;
     std::string outputBaseDir = OUTPUT_BASE_DIR;
     bool runScanMu = false;
+    bool runScanFitParams = false;
 
     for (int i = 1; i < argc; ++i) {
         std::string arg = argv[i];
@@ -1714,6 +1899,8 @@ int main(int argc, char *argv[]) {
                 outputBaseDir = argv[++i];
         } else if (arg == "-s" || arg == "--scan-mu") {
             runScanMu = true;
+        } else if (arg == "-a" || arg == "--scan-fit-params") {
+            runScanFitParams = true;
         } else if (arg[0] != '-') {
             inputFiles.push_back(arg);
         } else {
@@ -2522,6 +2709,12 @@ int main(int argc, char *argv[]) {
     // Запуск шаблонного фита на накопленных данных
     runMrecoilTemplateFit(vMrecoil_Signal_Weighted, vMrecoil_Bkg_Weighted, vMrecoil_qqHX_Weighted,
                           fs::path(outputBaseDir).string());
+
+    // Запуск сканирования параметров адаптивности и числа бинов
+    if (runScanFitParams) {
+        runMrecoilScanAdapt(vMrecoil_Signal_Weighted, vMrecoil_Bkg_Weighted, vMrecoil_qqHX_Weighted,
+                            fs::path(outputBaseDir).string());
+    }
 
     // Запуск сканирования по mu для определения чувствительности на 95% CL
     if (runScanMu) {
