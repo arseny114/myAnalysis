@@ -1,2 +1,5 @@
 build/
 pdf_results/
+venv/
+ml_data.csv
+xgb_zh_invisible.json

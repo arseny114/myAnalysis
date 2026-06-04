@@ -5,6 +5,7 @@
 #include <iomanip>
 #include <iostream>
 #include <string>
+#include <xgboost/c_api.h>
 
 // =============================================================================
 // НАСТРОЙКИ ОТБОРА
@@ -79,6 +80,20 @@ const double ELLIPSE_CY_GEV = 132.5; // Центр по M_recoil (ГэВ)
 const double ELLIPSE_A_GEV = 25.00;  // Большая полуось (ГэВ)
 const double ELLIPSE_B_GEV = 7.0;    // Малая полуось (ГэВ)
 const double ELLIPSE_THETA = -55.0;  // Угол поворота (градусы)
+
+// =============================================================================
+// НАСТРОЙКИ ML КЛАССИФИКАТОРА
+// =============================================================================
+
+const std::string DEFAULT_BDT_MODEL_PATH = "../ml/xgb_zh_invisible.json";
+const double DEFAULT_BDT_THRESHOLD = 0.8;
+
+// Порядок фичей должен строго совпадать с фичами в ../ml/train_bdt.py
+const std::vector<std::string> BDT_FEATURE_NAMES = {
+    "invMass", "cosThetaZ",   "deltaR",     "cosTheta1", "cosTheta2", "jet1_E",    "jet2_E",
+    "met_jet", "dijetEnergy", "deltaTheta", "deltaPhi",  "met_pfo",   "pmiss_mag", "cosThetaPmiss"};
+
+const size_t NUM_BDT_FEATURES = BDT_FEATURE_NAMES.size();
 
 // =============================================================================
 // ПАРАМЕТРЫ ФИЗИКИ И ГИСТОГРАММ
@@ -213,6 +228,9 @@ struct CutStatistics {
     Long64_t afterPreJetCount = 0;
     Long64_t afterPreConstituents = 0;
 
+    // BDT
+    Long64_t afterBdt = 0;
+
     // Основные отборы
     Long64_t afterMetCut = 0;
     Long64_t afterDeltaPhiCut = 0;
@@ -223,7 +241,7 @@ struct CutStatistics {
     Long64_t afterEllipseCut = 0;
     Long64_t finalSelected = 0;
 
-    void print(const std::string &processName) const {
+    void print(const std::string &processName, const bool useBdt) const {
         if (!PRINT_CUT_STATISTICS)
             return;
 
@@ -277,43 +295,49 @@ struct CutStatistics {
             current = afterPreConstituents;
         }
 
-        // ───────────────── ОСНОВНЫЕ ОТБОРЫ ─────────────────
+        // ───────────────── ОСНОВНЫЕ ОТБОРЫ ИЛИ BDT ─────────────────
         std::cout << "\n" << sepNarrow << "\n";
-        std::cout << "ОСНОВНЫЕ ОТБОРЫ:\n" << sepNarrow << "\n";
+        if (useBdt) {
+            std::cout << "BDT:\n" << sepNarrow << "\n";
+            printRow("BDT:", afterBdt, current);
+            current = afterBdt;
+        } else {
+            std::cout << "ОСНОВНЫЕ ОТБОРЫ:\n" << sepNarrow << "\n";
 
-        if (APPLY_MAIN_MET_CUT) {
-            printRow("MET cut:", afterMetCut, current);
-            current = afterMetCut;
-        }
+            if (APPLY_MAIN_MET_CUT) {
+                printRow("MET cut:", afterMetCut, current);
+                current = afterMetCut;
+            }
 
-        if (APPLY_MAIN_DELTA_PHI_CUT) {
-            printRow("Cut on #Delta#phi: ", afterDeltaPhiCut, current);
-            current = afterDeltaPhiCut;
-        }
+            if (APPLY_MAIN_DELTA_PHI_CUT) {
+                printRow("Cut on #Delta#phi: ", afterDeltaPhiCut, current);
+                current = afterDeltaPhiCut;
+            }
 
-        if (APPLY_MAIN_COS_THETA_Z_CUT) {
-            printRow("|cos#theta_{Z}:", afterCosThetaZCut, current);
-            current = afterCosThetaZCut;
-        }
+            if (APPLY_MAIN_COS_THETA_Z_CUT) {
+                printRow("|cos#theta_{Z}:", afterCosThetaZCut, current);
+                current = afterCosThetaZCut;
+            }
 
-        if (APPLY_MAIN_DIJET_MASS_WINDOW) {
-            printRow("Окно массы диджета:", afterDijetMassWindow, current);
-            current = afterDijetMassWindow;
-        }
+            if (APPLY_MAIN_DIJET_MASS_WINDOW) {
+                printRow("Окно массы диджета:", afterDijetMassWindow, current);
+                current = afterDijetMassWindow;
+            }
 
-        if (APPLY_MAIN_PMISS_CUT) {
-            printRow("PMISS cut:", afterPmissCut, current);
-            current = afterPmissCut;
-        }
+            if (APPLY_MAIN_PMISS_CUT) {
+                printRow("PMISS cut:", afterPmissCut, current);
+                current = afterPmissCut;
+            }
 
-        if (APPLY_MAIN_RECOIL_MASS_WINDOW) {
-            printRow("Окно массы отдачи:", afterRecoilMassWindow, current);
-            current = afterRecoilMassWindow;
-        }
+            if (APPLY_MAIN_RECOIL_MASS_WINDOW) {
+                printRow("Окно массы отдачи:", afterRecoilMassWindow, current);
+                current = afterRecoilMassWindow;
+            }
 
-        if (APPLY_MAIN_ELLIPSE_CUT) {
-            printRow("Эллиптический cut (Mjj vs Mrecoil):", afterEllipseCut, current);
-            current = afterEllipseCut;
+            if (APPLY_MAIN_ELLIPSE_CUT) {
+                printRow("Эллиптический cut (Mjj vs Mrecoil):", afterEllipseCut, current);
+                current = afterEllipseCut;
+            }
         }
 
         // ───────────────── ИТОГ ─────────────────
@@ -408,8 +432,8 @@ const double FIT_MRECOIL_MAX = 155.0;
 
 // Параметры RooKeysPdf: адаптивность ядра.
 // Чем больше значение, тем шире ядро и тем более гладкий шаблон.
-const double FIT_KEYSPDF_ADAPTIVITY_BGD = 2.5;
-const double FIT_KEYSPDF_ADAPTIVITY_SIGNAL = 0.1;
+const double FIT_KEYSPDF_ADAPTIVITY_BGD = 5.0;
+const double FIT_KEYSPDF_ADAPTIVITY_SIGNAL = 1.0;
 
 // Использовать ли зеркальное отражение ядра на границах диапазона.
 const bool FIT_KEYSPDF_MIRROR = false;

@@ -42,6 +42,7 @@
 #include <chrono>
 #include <cmath>
 #include <filesystem>
+#include <fstream>
 #include <iostream>
 #include <string>
 #include <vector>
@@ -1866,6 +1867,9 @@ void printUsage(const char *progName) {
         << "  -h, --help                   Показать эту справку\n"
         << "  -o, --output-dir DIR         Базовая директория результатов (по умолчанию: "
            "../pdf_results)\n"
+        << "  --export-csv DIR             Экспорт данных в CSV после предотборов (без "
+           "гистограмм)\n"
+        << "  -use-bdt                     Использовать BDT вместо основных отборов\n"
         << "  -s, --scan-mu                Запустить сканирование по mu\n"
         << "  -a, --scan-fit-params        Запустить сканирование параметров адаптивности и бинов\n"
         << "\nПример:\n"
@@ -1886,8 +1890,13 @@ int main(int argc, char *argv[]) {
 
     std::vector<std::string> inputFiles;
     std::string outputBaseDir = OUTPUT_BASE_DIR;
+    std::string exportCsvDir = "../ml";
+    std::string bdtModelPath = DEFAULT_BDT_MODEL_PATH;
+    double bdtThreshold = DEFAULT_BDT_THRESHOLD;
     bool runScanMu = false;
     bool runScanFitParams = false;
+    bool exportCsv = false;
+    bool useBdt = false;
 
     for (int i = 1; i < argc; ++i) {
         std::string arg = argv[i];
@@ -1897,6 +1906,10 @@ int main(int argc, char *argv[]) {
         } else if (arg == "-o" || arg == "--output-dir") {
             if (i + 1 < argc)
                 outputBaseDir = argv[++i];
+        } else if (arg == "--export-csv") {
+            exportCsv = true;
+        } else if (arg == "--use-bdt") {
+            useBdt = true;
         } else if (arg == "-s" || arg == "--scan-mu") {
             runScanMu = true;
         } else if (arg == "-a" || arg == "--scan-fit-params") {
@@ -1914,6 +1927,53 @@ int main(int argc, char *argv[]) {
         std::cerr << "Ошибка: не указано ни одного ROOT-файла\n";
         printUsage(argv[0]);
         return 1;
+    }
+
+    // Проверка взаимоисключения режимов
+    if (exportCsv && useBdt) {
+        std::cerr << "Ошибка: Режимы --export-csv и --use-bdt взаимоисключающие.\n";
+        return 1;
+    }
+
+    // Файл с дампом данных для обучения
+    std::ofstream csvFile;
+    bool csvInitialized = false;
+    if (exportCsv) {
+        fs::create_directories(exportCsvDir);
+        std::string csvPath = (fs::path(exportCsvDir) / "ml_data.csv").string();
+        csvFile.open(csvPath, std::ios::out | std::ios::trunc); // trunc очищает файл при старте
+        if (!csvFile.is_open()) {
+            std::cerr << "Ошибка: не удалось создать CSV файл " << csvPath << std::endl;
+            return 1;
+        }
+        // Заголовок CSV
+        csvFile << "process,is_signal,weight,"
+                << "invMass,cosThetaZ,deltaR,"
+                << "cosTheta1,cosTheta2,jet1_E,jet2_E,"
+                << "met_jet,dijetEnergy,deltaTheta,deltaPhi,"
+                << "met_pfo,pmiss_mag,cosThetaPmiss\n";
+        csvInitialized = true;
+        std::cout << "[CSV] Файл для выгрузки открыт: " << csvPath << std::endl;
+    }
+
+    // Загрузка модели
+    BoosterHandle h_booster = nullptr;
+    if (useBdt) {
+        int ret = XGBoosterCreate(nullptr, 0, &h_booster);
+        if (ret != 0) {
+            std::cerr << "Ошибка: Не удалось создать Booster: " << XGBGetLastError() << "\n";
+            return 1;
+        }
+
+        ret = XGBoosterLoadModel(h_booster, bdtModelPath.c_str());
+        if (ret != 0) {
+            std::cerr << "Ошибка: Не удалось загрузить модель " << bdtModelPath << ": "
+                      << XGBGetLastError() << "\n";
+            XGBoosterFree(h_booster);
+            return 1;
+        }
+        std::cout << "XGBoost модель загружена: " << bdtModelPath << "\n";
+        std::cout << "  Порог отбора: " << bdtThreshold << "\n";
     }
 
     // Контейнер для отдельных гистограмм каждого процесса + их метаданные
@@ -2299,6 +2359,36 @@ int main(int argc, char *argv[]) {
             double cosThetaPmiss =
                 (pmiss_mag > 1e-9) ? std::max(-1.0, std::min(1.0, pmiss_z / pmiss_mag)) : 0.0;
 
+            // Детерминированное разбиение на Analysis и ML samples
+            // Используем хеш от номера события, чтобы избежать корреляций внутри батчей MC
+            // Результат всегда одинаков для одного и того же события
+            uint64_t eventHash = std::hash<Long64_t>{}(tree->GetReadEntry());
+            bool isAnalysisSample = (eventHash % 2 == 0); // 50/50 split
+
+            // Экспорт в CSV если включен режим экспорта
+            if (exportCsv && csvInitialized) {
+                bool isSignal = (processName.find("qqHinvi") != std::string::npos);
+
+                // Экспортируем половину всех событий для обучения
+                if (!isAnalysisSample) {
+                    csvFile << processName << "," << (isSignal ? 1 : 0) << "," << proc.weight << ","
+                            << invMass << "," << cosThetaZ << "," << deltaR << "," << cosTheta1
+                            << "," << cosTheta2 << "," << inclJetE->at(0) << "," << inclJetE->at(1)
+                            << "," << met_jet << "," << dijetEnergy << "," << deltaTheta << ","
+                            << deltaPhi << "," << met_pfo << "," << pmiss_mag << ","
+                            << cosThetaPmiss << "\n";
+                }
+
+                // Пропускаем основные отборы и гистограммы
+                continue;
+            }
+
+            // В режиме анализа обрабатываем только те события, которые не участвовали в
+            // обучении. Это только в случае применения bdt, в обычном режиме обрабатываем
+            // все события.
+            if (useBdt && !isAnalysisSample)
+                continue;
+
             hInvMass->Fill(invMass);
             hRecoilMass->Fill(recoilMass);
             h2D_Correlation->Fill(invMass, recoilMass);
@@ -2328,39 +2418,91 @@ int main(int argc, char *argv[]) {
             mainSelHists[processName]["dijetMass"]->Fill(invMass);
             mainSelHists[processName]["pmiss"]->Fill(pmiss_mag);
 
-            // ==================== ОСНОВНЫЕ ОТБОРЫ ====================
-            if (APPLY_MAIN_MET_CUT && (met_jet < MET_CUT_MIN_GEV || met_jet > MET_CUT_MAX_GEV))
-                continue;
-            stats.afterMetCut++;
+            // ==================== ОСНОВНЫЕ ОТБОРЫ ИЛИ BDT ====================
+            if (useBdt) {
+                // 1. Формируем вектор фичей
+                std::vector<float> features(NUM_BDT_FEATURES);
+                features[0] = static_cast<float>(invMass);
+                features[1] = static_cast<float>(cosThetaZ);
+                features[2] = static_cast<float>(deltaR);
+                features[3] = static_cast<float>(cosTheta1);
+                features[4] = static_cast<float>(cosTheta2);
+                features[5] = static_cast<float>(inclJetE->at(0));
+                features[6] = static_cast<float>(inclJetE->at(1));
+                features[7] = static_cast<float>(met_jet);
+                features[8] = static_cast<float>(dijetEnergy);
+                features[9] = static_cast<float>(deltaTheta);
+                features[10] = static_cast<float>(deltaPhi);
+                features[11] = static_cast<float>(met_pfo);
+                features[12] = static_cast<float>(pmiss_mag);
+                features[13] = static_cast<float>(cosThetaPmiss);
 
-            if (APPLY_MAIN_DELTA_PHI_CUT && deltaPhi >= DELTA_PHI_CUT_MAX)
-                continue;
-            stats.afterDeltaPhiCut++;
+                // 2. Создаем временный DMatrix из массива float
+                // Аргументы: data, nrow, ncol, missing_value, &handle
+                DMatrixHandle dmat = nullptr;
+                int ret = XGDMatrixCreateFromMat(features.data(), 1, NUM_BDT_FEATURES, 0.0f, &dmat);
 
-            if (APPLY_MAIN_COS_THETA_Z_CUT && std::abs(cosThetaZ) >= COS_THETA_Z_CUT)
-                continue;
-            stats.afterCosThetaZCut++;
+                if (ret != 0) {
+                    std::cerr << "Ошибка создания DMatrix: " << XGBGetLastError() << "\n";
+                    continue;
+                }
 
-            if (APPLY_MAIN_DIJET_MASS_WINDOW &&
-                (invMass < DIJET_MASS_WINDOW_MIN_GEV || invMass > DIJET_MASS_WINDOW_MAX_GEV))
-                continue;
-            stats.afterDijetMassWindow++;
+                // 3. Делаем предсказание
+                bst_ulong out_len = 0;
+                const float *result = nullptr;
+                ret = XGBoosterPredict(h_booster, dmat, 0, 0, 0, &out_len, &result);
 
-            if (APPLY_MAIN_PMISS_CUT &&
-                (pmiss_mag < PMISS_CUT_MIN_GEV || pmiss_mag > PMISS_CUT_MAX_GEV))
-                continue;
-            stats.afterPmissCut++;
+                // 4. Освобождаем память DMatrix сразу после использования
+                XGDMatrixFree(dmat);
 
-            if (APPLY_MAIN_RECOIL_MASS_WINDOW && (recoilMass < RECOIL_MASS_WINDOW_MIN_GEV ||
-                                                  recoilMass > RECOIL_MASS_WINDOW_MAX_GEV))
-                continue;
-            stats.afterRecoilMassWindow++;
+                if (ret != 0) {
+                    std::cerr << "Ошибка предсказания XGBoost: " << XGBGetLastError() << "\n";
+                    continue;
+                }
 
-            if (APPLY_MAIN_ELLIPSE_CUT &&
-                !isInsideEllipse(invMass, recoilMass, ELLIPSE_CX_GEV, ELLIPSE_CY_GEV, ELLIPSE_A_GEV,
-                                 ELLIPSE_B_GEV, ELLIPSE_THETA))
-                continue;
-            stats.afterEllipseCut++;
+                // 5. Получаем скор
+                // result указывает на внутренний буфер XGBoost, копировать не нужно, пока не
+                // освободим booster
+                float bdtScore = result[0];
+
+                // 6. Применяем порог
+                if (bdtScore < bdtThreshold)
+                    continue;
+                stats.afterBdt++;
+            } else {
+                if (APPLY_MAIN_MET_CUT && (met_jet < MET_CUT_MIN_GEV || met_jet > MET_CUT_MAX_GEV))
+                    continue;
+                stats.afterMetCut++;
+
+                if (APPLY_MAIN_DELTA_PHI_CUT && deltaPhi >= DELTA_PHI_CUT_MAX)
+                    continue;
+                stats.afterDeltaPhiCut++;
+
+                if (APPLY_MAIN_COS_THETA_Z_CUT && std::abs(cosThetaZ) >= COS_THETA_Z_CUT)
+                    continue;
+                stats.afterCosThetaZCut++;
+
+                if (APPLY_MAIN_DIJET_MASS_WINDOW &&
+                    (invMass < DIJET_MASS_WINDOW_MIN_GEV || invMass > DIJET_MASS_WINDOW_MAX_GEV))
+                    continue;
+                stats.afterDijetMassWindow++;
+
+                if (APPLY_MAIN_PMISS_CUT &&
+                    (pmiss_mag < PMISS_CUT_MIN_GEV || pmiss_mag > PMISS_CUT_MAX_GEV))
+                    continue;
+                stats.afterPmissCut++;
+
+                if (APPLY_MAIN_RECOIL_MASS_WINDOW && (recoilMass < RECOIL_MASS_WINDOW_MIN_GEV ||
+                                                      recoilMass > RECOIL_MASS_WINDOW_MAX_GEV))
+                    continue;
+                stats.afterRecoilMassWindow++;
+
+                if (APPLY_MAIN_ELLIPSE_CUT &&
+                    !isInsideEllipse(invMass, recoilMass, ELLIPSE_CX_GEV, ELLIPSE_CY_GEV,
+                                     ELLIPSE_A_GEV, ELLIPSE_B_GEV, ELLIPSE_THETA))
+                    continue;
+                stats.afterEllipseCut++;
+            }
 
             stats.finalSelected++;
 
@@ -2377,8 +2519,8 @@ int main(int argc, char *argv[]) {
 
             // Определяем, сигнал это или фон (по имени процесса). Заполняем соотвествующий
             // контейнер с весом. Добавляем в данные для фита только процессы с достаточной
-            // статистикой после отборов. Процесс qqHX сохраняем в отдельный контейнер потому что он
-            // содержит и фон и сигнал.
+            // статистикой после отборов. Процесс qqHX сохраняем в отдельный контейнер потому
+            // что он содержит и фон и сигнал.
             bool isSignal = (processName.find("qqHinvi") != std::string::npos);
             bool is_qqHX = (processName.find("qqHX") != std::string::npos);
 
@@ -2401,119 +2543,127 @@ int main(int argc, char *argv[]) {
         std::cout << "Прошло времени: " << totalSec << " с (" << totalSec / 60.0 << " мин)"
                   << std::endl;
 
-        stats.print(processName);
+        stats.print(processName, useBdt);
         elecStats.print();
 
-        // Отрисовка гистограмм с условным отображением основных отборов
-        std::vector<std::pair<double, std::string>> invMassMarks = {{MZ_GEV, "M_{Z}"}};
+        // Пропускаем отрисовку гистограмм, если включен режим дампа или bdt
+        if (exportCsv) {
+            std::cout << "Режим экспорта CSV: гистограммы не строятся" << std::endl;
+        } else if (useBdt) {
+            std::cout << "Режим BDT: гистограммы не строятся" << std::endl;
+        } else {
+            // Отрисовка гистограмм с условным отображением основных отборов
+            std::vector<std::pair<double, std::string>> invMassMarks = {{MZ_GEV, "M_{Z}"}};
 #if APPLY_MAIN_DIJET_MASS_WINDOW
-        invMassMarks.emplace_back(DIJET_MASS_WINDOW_MIN_GEV, "M_{jj}^{min}");
-        invMassMarks.emplace_back(DIJET_MASS_WINDOW_MAX_GEV, "M_{jj}^{max}");
+            invMassMarks.emplace_back(DIJET_MASS_WINDOW_MIN_GEV, "M_{jj}^{min}");
+            invMassMarks.emplace_back(DIJET_MASS_WINDOW_MAX_GEV, "M_{jj}^{max}");
 #endif
-        drawHistogram1D(hInvMass, "cInvMass", "M_{jj} [GeV]", OUTPUT_INV_MASS, invMassMarks, kRed,
-                        2);
+            drawHistogram1D(hInvMass, "cInvMass", "M_{jj} [GeV]", OUTPUT_INV_MASS, invMassMarks,
+                            kRed, 2);
 
-        std::vector<std::pair<double, std::string>> recoilMarks = {{MH_GEV, "M_{H}"}};
+            std::vector<std::pair<double, std::string>> recoilMarks = {{MH_GEV, "M_{H}"}};
 #if APPLY_MAIN_RECOIL_MASS_WINDOW
-        recoilMarks.emplace_back(RECOIL_MASS_WINDOW_MIN_GEV, "M_{rec}^{min}");
-        recoilMarks.emplace_back(RECOIL_MASS_WINDOW_MAX_GEV, "M_{rec}^{max}");
+            recoilMarks.emplace_back(RECOIL_MASS_WINDOW_MIN_GEV, "M_{rec}^{min}");
+            recoilMarks.emplace_back(RECOIL_MASS_WINDOW_MAX_GEV, "M_{rec}^{max}");
 #endif
-        drawHistogram1D(hRecoilMass, "cRecoilMass", "M_{recoil} [GeV]", OUTPUT_RECOIL_MASS,
-                        recoilMarks, kBlue, 2);
+            drawHistogram1D(hRecoilMass, "cRecoilMass", "M_{recoil} [GeV]", OUTPUT_RECOIL_MASS,
+                            recoilMarks, kBlue, 2);
 
-        drawHistogram2D(h2D_Correlation, "c2D_Correlation", "M_{jj} [GeV]", "M_{recoil} [GeV]",
-                        OUTPUT_2D_CORR, MZ_GEV, MH_GEV, "M_{Z}", "M_{H}",
+            drawHistogram2D(h2D_Correlation, "c2D_Correlation", "M_{jj} [GeV]", "M_{recoil} [GeV]",
+                            OUTPUT_2D_CORR, MZ_GEV, MH_GEV, "M_{Z}", "M_{H}",
 #if APPLY_MAIN_ELLIPSE_CUT
-                        ELLIPSE_CX_GEV, ELLIPSE_CY_GEV, ELLIPSE_A_GEV, ELLIPSE_B_GEV, ELLIPSE_THETA,
-                        true
+                            ELLIPSE_CX_GEV, ELLIPSE_CY_GEV, ELLIPSE_A_GEV, ELLIPSE_B_GEV,
+                            ELLIPSE_THETA, true
 #else
-                        -1, -1, -1, -1, 0, false
+                            -1, -1, -1, -1, 0, false
 #endif
-        );
+            );
 
-        std::vector<std::pair<double, std::string>> cosThetaMarks;
+            std::vector<std::pair<double, std::string>> cosThetaMarks;
 #if APPLY_MAIN_COS_THETA_Z_CUT
-        cosThetaMarks.emplace_back(COS_THETA_Z_CUT, "|cos#theta|^{cut}");
-        cosThetaMarks.emplace_back(-COS_THETA_Z_CUT, "-|cos#theta|^{cut}");
+            cosThetaMarks.emplace_back(COS_THETA_Z_CUT, "|cos#theta|^{cut}");
+            cosThetaMarks.emplace_back(-COS_THETA_Z_CUT, "-|cos#theta|^{cut}");
 #endif
-        drawHistogram1D(hCosThetaZ, "cCosThetaZ", "cos#theta_{Z}", OUTPUT_COS_THETA_Z,
-                        cosThetaMarks, kRed, 2);
+            drawHistogram1D(hCosThetaZ, "cCosThetaZ", "cos#theta_{Z}", OUTPUT_COS_THETA_Z,
+                            cosThetaMarks, kRed, 2);
 
-        drawHistogram1D(hDeltaR, "cDeltaR", "#Delta R", OUTPUT_DELTA_R, {}, kMagenta, 2);
+            drawHistogram1D(hDeltaR, "cDeltaR", "#Delta R", OUTPUT_DELTA_R, {}, kMagenta, 2);
 
-        drawHistogram1D(hCosThetaJet, "cCosThetaJet", "cos#theta", OUTPUT_COS_THETA_JET, {}, kCyan,
-                        2);
+            drawHistogram1D(hCosThetaJet, "cCosThetaJet", "cos#theta", OUTPUT_COS_THETA_JET, {},
+                            kCyan, 2);
 
-        drawHistogram1D(hMETpfo, "cMETpfo", "MET_{PFO} [GeV]", OUTPUT_MET_PFO, {}, kOrange + 1, 2);
+            drawHistogram1D(hMETpfo, "cMETpfo", "MET_{PFO} [GeV]", OUTPUT_MET_PFO, {}, kOrange + 1,
+                            2);
 
-        std::vector<std::pair<double, std::string>> metMarks;
+            std::vector<std::pair<double, std::string>> metMarks;
 #if APPLY_MAIN_MET_CUT
-        metMarks.emplace_back(MET_CUT_MIN_GEV, "MET_{min}");
+            metMarks.emplace_back(MET_CUT_MIN_GEV, "MET_{min}");
 #endif
-        drawHistogram1D(hMETjet, "cMETjet", "MET_{jet} [GeV]", OUTPUT_MET_JET, metMarks, kViolet,
-                        2);
+            drawHistogram1D(hMETjet, "cMETjet", "MET_{jet} [GeV]", OUTPUT_MET_JET, metMarks,
+                            kViolet, 2);
 
-        // h2D_Mrecoil_vs_MET: вертикальная линия MET > 20 GeV
-        drawHistogram2D(h2D_Mrecoil_vs_MET, "c2D_Mrecoil_vs_MET", "MET_{jet} [GeV]",
-                        "M_{recoil} [GeV]", makeOutputPath("2D_Mrecoil_vs_MET"),
+            // h2D_Mrecoil_vs_MET: вертикальная линия MET > 20 GeV
+            drawHistogram2D(h2D_Mrecoil_vs_MET, "c2D_Mrecoil_vs_MET", "MET_{jet} [GeV]",
+                            "M_{recoil} [GeV]", makeOutputPath("2D_Mrecoil_vs_MET"),
 #if APPLY_MAIN_MET_CUT
-                        MET_CUT_MIN_GEV, -1, "MET_{min}", "");
+                            MET_CUT_MIN_GEV, -1, "MET_{min}", "");
 #else
-                        -1, -1, "", "");
+                            -1, -1, "", "");
 #endif
 
-        // h2D_Mrecoil_vs_Pmiss: без активных отборов по этим осям
-        drawHistogram2D(h2D_Mrecoil_vs_Pmiss, "c2D_Mrecoil_vs_Pmiss", "|P_{miss}| [GeV]",
-                        "M_{recoil} [GeV]", makeOutputPath("2D_Mrecoil_vs_Pmiss"));
+            // h2D_Mrecoil_vs_Pmiss: без активных отборов по этим осям
+            drawHistogram2D(h2D_Mrecoil_vs_Pmiss, "c2D_Mrecoil_vs_Pmiss", "|P_{miss}| [GeV]",
+                            "M_{recoil} [GeV]", makeOutputPath("2D_Mrecoil_vs_Pmiss"));
 
-        // h2D_MET_vs_Pmiss: вертикальная линия MET > 20 GeV (ось Y здесь MET)
-        drawHistogram2D(h2D_MET_vs_Pmiss, "c2D_MET_vs_Pmiss", "|P_{miss}| [GeV]", "MET_{jet} [GeV]",
-                        makeOutputPath("2D_MET_vs_Pmiss"),
+            // h2D_MET_vs_Pmiss: вертикальная линия MET > 20 GeV (ось Y здесь MET)
+            drawHistogram2D(h2D_MET_vs_Pmiss, "c2D_MET_vs_Pmiss", "|P_{miss}| [GeV]",
+                            "MET_{jet} [GeV]", makeOutputPath("2D_MET_vs_Pmiss"),
 #if APPLY_MAIN_MET_CUT
-                        -1, MET_CUT_MIN_GEV, "", "MET_{min}");
+                            -1, MET_CUT_MIN_GEV, "", "MET_{min}");
 #else
-                        -1, -1, "", "");
+                            -1, -1, "", "");
 #endif
 
-        // h2D_Mjj_vs_MET: вертикальная линия MET > 20 GeV
-        drawHistogram2D(h2D_Mjj_vs_MET, "c2D_Mjj_vs_MET", "MET_{jet} [GeV]", "M_{jj} [GeV]",
-                        makeOutputPath("2D_Mjj_vs_MET"),
+            // h2D_Mjj_vs_MET: вертикальная линия MET > 20 GeV
+            drawHistogram2D(h2D_Mjj_vs_MET, "c2D_Mjj_vs_MET", "MET_{jet} [GeV]", "M_{jj} [GeV]",
+                            makeOutputPath("2D_Mjj_vs_MET"),
 #if APPLY_MAIN_MET_CUT
-                        MET_CUT_MIN_GEV, -1, "MET_{min}", "");
+                            MET_CUT_MIN_GEV, -1, "MET_{min}", "");
 #else
-                        -1, -1, "", "");
+                            -1, -1, "", "");
 #endif
 
-        // h2D_Mjj_vs_Pmiss: без активных отборов по этим осям
-        drawHistogram2D(h2D_Mjj_vs_Pmiss, "c2D_Mjj_vs_Pmiss", "|P_{miss}| [GeV]", "M_{jj} [GeV]",
-                        makeOutputPath("2D_Mjj_vs_Pmiss"));
+            // h2D_Mjj_vs_Pmiss: без активных отборов по этим осям
+            drawHistogram2D(h2D_Mjj_vs_Pmiss, "c2D_Mjj_vs_Pmiss", "|P_{miss}| [GeV]",
+                            "M_{jj} [GeV]", makeOutputPath("2D_Mjj_vs_Pmiss"));
 
-        // h2D_CosThetaZ_vs_CosThetaPmiss: горизонтальные линии |cosθ_Z| < 0.98
-        drawHistogram2D(h2D_CosThetaZ_vs_CosThetaPmiss, "c2D_CosThetaZ_vs_CosThetaPmiss",
-                        "cos#theta_{miss}", "cos#theta_{Z}",
-                        makeOutputPath("2D_CosThetaZ_vs_CosThetaPmiss"),
+            // h2D_CosThetaZ_vs_CosThetaPmiss: горизонтальные линии |cosθ_Z| < 0.98
+            drawHistogram2D(h2D_CosThetaZ_vs_CosThetaPmiss, "c2D_CosThetaZ_vs_CosThetaPmiss",
+                            "cos#theta_{miss}", "cos#theta_{Z}",
+                            makeOutputPath("2D_CosThetaZ_vs_CosThetaPmiss"),
 #if APPLY_MAIN_COS_THETA_Z_CUT
-                        -1, COS_THETA_Z_CUT, "", "|cos#theta|^{cut}");
+                            -1, COS_THETA_Z_CUT, "", "|cos#theta|^{cut}");
 #else
-                        -1, -1, "", "");
+                            -1, -1, "", "");
 #endif
 
-        std::vector<std::pair<double, std::string>> deltaPhiMarks;
+            std::vector<std::pair<double, std::string>> deltaPhiMarks;
 #if APPLY_MAIN_DELTA_PHI_CUT
-        deltaPhiMarks.emplace_back(DELTA_PHI_CUT_MAX, "#Delta#phi^{cut}");
+            deltaPhiMarks.emplace_back(DELTA_PHI_CUT_MAX, "#Delta#phi^{cut}");
 #endif
-        drawHistogram1D(hDeltaPhi, "cDeltaPhi", "#Delta#phi [rad]", makeOutputPath("deltaPhi_jets"),
-                        deltaPhiMarks, kGreen + 2, 2);
+            drawHistogram1D(hDeltaPhi, "cDeltaPhi", "#Delta#phi [rad]",
+                            makeOutputPath("deltaPhi_jets"), deltaPhiMarks, kGreen + 2, 2);
 
-        // Остальные гистограммы без линий отборов
-        drawHistogram1D(hPmissMag, "cPmissMag", "|P_{miss}| [GeV]", OUTPUT_PMISS_MAG, {}, kOrange,
-                        2);
-        drawHistogram1D(hCosThetaPmiss, "cCosThetaPmiss", "cos#theta_{miss}",
-                        OUTPUT_COS_THETA_PMISS, {}, kMagenta, 2);
-        drawHistogram1D(hDijetEnergy, "cDijetEnergy", "E_{jj} [GeV]",
-                        makeOutputPath("dijet_energy"), {}, kAzure + 1, 2);
-        drawHistogram1D(hDeltaTheta, "cDeltaTheta", "#Delta#theta [rad]",
-                        makeOutputPath("deltaTheta_jets"), {}, kOrange + 1, 2);
+            // Остальные гистограммы без линий отборов
+            drawHistogram1D(hPmissMag, "cPmissMag", "|P_{miss}| [GeV]", OUTPUT_PMISS_MAG, {},
+                            kOrange, 2);
+            drawHistogram1D(hCosThetaPmiss, "cCosThetaPmiss", "cos#theta_{miss}",
+                            OUTPUT_COS_THETA_PMISS, {}, kMagenta, 2);
+            drawHistogram1D(hDijetEnergy, "cDijetEnergy", "E_{jj} [GeV]",
+                            makeOutputPath("dijet_energy"), {}, kAzure + 1, 2);
+            drawHistogram1D(hDeltaTheta, "cDeltaTheta", "#Delta#theta [rad]",
+                            makeOutputPath("deltaTheta_jets"), {}, kOrange + 1, 2);
+        }
 
         // Очистка памяти
         delete hInvMass;
@@ -2538,164 +2688,174 @@ int main(int argc, char *argv[]) {
         inputFile->Close();
         delete inputFile;
 
-        std::cout << "\nГотово. Результаты сохранены в: " << fs::absolute(processOutputDir)
-                  << std::endl;
-    }
-
-    // =============================================================================
-    // ОТРИСОВКА ГИСТОГРАММ ПРЕДОТБОРОВ
-    // =============================================================================
-    std::cout << "\nОтрисовка гистограмм предотборов...\n";
-
-    // Создаем временные карты для отрисовки
-    std::map<std::string, std::pair<TH1F *, ProcessInfo>> histsPhotonEnergy;
-    std::map<std::string, std::pair<TH1F *, ProcessInfo>> histsNJets;
-    std::map<std::string, std::pair<TH1F *, ProcessInfo>> histsNConstituents;
-
-    for (const auto &procEntry : preselectionHists) {
-        const std::string &procName = procEntry.first;
-
-        // Находим ProcessInfo из processRecoilHists
-        ProcessInfo info;
-        auto it = processRecoilHists.find(procName);
-        if (it != processRecoilHists.end()) {
-            info = it->second.second;
-        } else {
-            info = ProcessInfo{procName, 1.0, kBlack, 1001};
-        }
-
-        if (procEntry.second.count("photonEnergy")) {
-            histsPhotonEnergy[procName] = {procEntry.second.at("photonEnergy"), info};
-        }
-        if (procEntry.second.count("nJets")) {
-            histsNJets[procName] = {procEntry.second.at("nJets"), info};
-        }
-        if (procEntry.second.count("nConstituents")) {
-            histsNConstituents[procName] = {procEntry.second.at("nConstituents"), info};
+        if (!useBdt && !exportCsv) {
+            std::cout << "\nГотово. Результаты сохранены в: " << fs::absolute(processOutputDir)
+                      << std::endl;
         }
     }
 
-    // Отрисовка
-    std::string preselectionDir = (fs::path(outputBaseDir) / "preselection").string();
-    fs::create_directories(preselectionDir);
+    if (!exportCsv && !useBdt) {
+        // =============================================================================
+        // ОТРИСОВКА ГИСТОГРАММ ПРЕДОТБОРОВ
+        // =============================================================================
+        std::cout << "\nОтрисовка гистограмм предотборов...\n";
 
-    // 1. Энергия фотонов с отметкой PHOTON_ENERGY_CUT_GEV
-    drawPreselectionHistograms(histsPhotonEnergy, "photonEnergy", "Max Photon Energy Distribution",
-                               "E_{#gamma}^{max} [GeV]",
-                               (fs::path(preselectionDir) / "photon_energy.pdf").string(),
+        // Создаем временные карты для отрисовки
+        std::map<std::string, std::pair<TH1F *, ProcessInfo>> histsPhotonEnergy;
+        std::map<std::string, std::pair<TH1F *, ProcessInfo>> histsNJets;
+        std::map<std::string, std::pair<TH1F *, ProcessInfo>> histsNConstituents;
+
+        for (const auto &procEntry : preselectionHists) {
+            const std::string &procName = procEntry.first;
+
+            // Находим ProcessInfo из processRecoilHists
+            ProcessInfo info;
+            auto it = processRecoilHists.find(procName);
+            if (it != processRecoilHists.end()) {
+                info = it->second.second;
+            } else {
+                info = ProcessInfo{procName, 1.0, kBlack, 1001};
+            }
+
+            if (procEntry.second.count("photonEnergy")) {
+                histsPhotonEnergy[procName] = {procEntry.second.at("photonEnergy"), info};
+            }
+            if (procEntry.second.count("nJets")) {
+                histsNJets[procName] = {procEntry.second.at("nJets"), info};
+            }
+            if (procEntry.second.count("nConstituents")) {
+                histsNConstituents[procName] = {procEntry.second.at("nConstituents"), info};
+            }
+        }
+
+        // Отрисовка
+        std::string preselectionDir = (fs::path(outputBaseDir) / "preselection").string();
+        fs::create_directories(preselectionDir);
+
+        // 1. Энергия фотонов с отметкой PHOTON_ENERGY_CUT_GEV
+        drawPreselectionHistograms(histsPhotonEnergy, "photonEnergy",
+                                   "Max Photon Energy Distribution", "E_{#gamma}^{max} [GeV]",
+                                   (fs::path(preselectionDir) / "photon_energy.pdf").string(),
 #if APPLY_PRE_HIGH_E_PHOTON_VETO
-                               PHOTON_ENERGY_CUT_GEV
+                                   PHOTON_ENERGY_CUT_GEV
 #else
-                               -1
+                                   -1
 #endif
-    );
+        );
 
-    // 2. Число джетов с отметкой требования ровно 2 джета
-    drawPreselectionHistograms(histsNJets, "nJets", "Number of Jets Distribution", "N_{jets}",
-                               (fs::path(preselectionDir) / "n_jets.pdf").string(),
+        // 2. Число джетов с отметкой требования ровно 2 джета
+        drawPreselectionHistograms(histsNJets, "nJets", "Number of Jets Distribution", "N_{jets}",
+                                   (fs::path(preselectionDir) / "n_jets.pdf").string(),
 #if APPLY_PRE_TWO_JETS_REQUIREMENT
-                               2
+                                   2
 #else
-                               -1
+                                   -1
 #endif
-    );
+        );
 
-    // 3. Число конституентов с отметкой MIN_CONSTITUENTS_PER_JET
-    drawPreselectionHistograms(histsNConstituents, "nConstituents",
-                               "Number of Constituents per Jet", "N_{constituents}",
-                               (fs::path(preselectionDir) / "n_constituents.pdf").string(),
+        // 3. Число конституентов с отметкой MIN_CONSTITUENTS_PER_JET
+        drawPreselectionHistograms(histsNConstituents, "nConstituents",
+                                   "Number of Constituents per Jet", "N_{constituents}",
+                                   (fs::path(preselectionDir) / "n_constituents.pdf").string(),
 #if APPLY_PRE_CONSTITUENTS_REQUIREMENT
-                               MIN_CONSTITUENTS_PER_JET
+                                   MIN_CONSTITUENTS_PER_JET
 #else
-                               -1
+                                   -1
 #endif
-    );
+        );
 
-    std::cout << "Гистограммы предотборов сохранены в: " << preselectionDir << "\n";
+        std::cout << "Гистограммы предотборов сохранены в: " << preselectionDir << "\n";
 
-    // =============================================================================
-    // ОТРИСОВКА СУММАРНЫХ ГИСТОГРАММ ОСНОВНЫХ ОТБОРОВ
-    // =============================================================================
-    std::cout << "\nОтрисовка гистограмм основных отборов...\n";
+        // =============================================================================
+        // ОТРИСОВКА СУММАРНЫХ ГИСТОГРАММ ОСНОВНЫХ ОТБОРОВ
+        // =============================================================================
+        std::cout << "\nОтрисовка гистограмм основных отборов...\n";
 
-    std::map<std::string, std::pair<TH1F *, ProcessInfo>> mainMETmap, mainDPhiMap, mainCosTMap,
-        mainMjjMap, mainPmissMap;
+        std::map<std::string, std::pair<TH1F *, ProcessInfo>> mainMETmap, mainDPhiMap, mainCosTMap,
+            mainMjjMap, mainPmissMap;
 
-    for (const auto &procEntry : mainSelHists) {
-        const std::string &procName = procEntry.first;
-        ProcessInfo info;
-        auto it = processRecoilHists.find(procName);
-        if (it != processRecoilHists.end())
-            info = it->second.second;
-        else
-            info = ProcessInfo{procName, 1.0, kBlack, 1001};
+        for (const auto &procEntry : mainSelHists) {
+            const std::string &procName = procEntry.first;
+            ProcessInfo info;
+            auto it = processRecoilHists.find(procName);
+            if (it != processRecoilHists.end())
+                info = it->second.second;
+            else
+                info = ProcessInfo{procName, 1.0, kBlack, 1001};
 
-        if (procEntry.second.count("met"))
-            mainMETmap[procName] = {procEntry.second.at("met"), info};
-        if (procEntry.second.count("deltaPhi"))
-            mainDPhiMap[procName] = {procEntry.second.at("deltaPhi"), info};
-        if (procEntry.second.count("cosThetaZ"))
-            mainCosTMap[procName] = {procEntry.second.at("cosThetaZ"), info};
-        if (procEntry.second.count("dijetMass"))
-            mainMjjMap[procName] = {procEntry.second.at("dijetMass"), info};
-        if (procEntry.second.count("pmiss"))
-            mainPmissMap[procName] = {procEntry.second.at("pmiss"), info};
+            if (procEntry.second.count("met"))
+                mainMETmap[procName] = {procEntry.second.at("met"), info};
+            if (procEntry.second.count("deltaPhi"))
+                mainDPhiMap[procName] = {procEntry.second.at("deltaPhi"), info};
+            if (procEntry.second.count("cosThetaZ"))
+                mainCosTMap[procName] = {procEntry.second.at("cosThetaZ"), info};
+            if (procEntry.second.count("dijetMass"))
+                mainMjjMap[procName] = {procEntry.second.at("dijetMass"), info};
+            if (procEntry.second.count("pmiss"))
+                mainPmissMap[procName] = {procEntry.second.at("pmiss"), info};
+        }
+
+        std::string mainSelDir = (fs::path(outputBaseDir) / "main_selection").string();
+        fs::create_directories(mainSelDir);
+
+        // MET: окно [min, max] 2 стрелки
+        drawMainSelectionHistograms(mainMETmap, "MET Distribution", "MET_{jet} [GeV]",
+                                    (fs::path(mainSelDir) / "main_met.pdf").string(),
+#if APPLY_MAIN_MET_CUT
+                                    { MET_CUT_MIN_GEV, MET_CUT_MAX_GEV }
+#else
+                                    {}
+#endif
+        );
+
+        // deltaPhi: один верхний предел 1 стрелка
+        drawMainSelectionHistograms(mainDPhiMap, "#Delta#phi Distribution", "#Delta#phi [rad]",
+                                    (fs::path(mainSelDir) / "main_deltaPhi.pdf").string(),
+#if APPLY_MAIN_DELTA_PHI_CUT
+                                    { DELTA_PHI_CUT_MAX }
+#else
+                                    {}
+#endif
+        );
+
+        // |cos theta_Z|: симметричный порог — 2 стрелки
+        drawMainSelectionHistograms(mainCosTMap, "cos#theta_{Z} Distribution", "cos#theta_{Z}",
+                                    (fs::path(mainSelDir) / "main_cosThetaZ.pdf").string(),
+#if APPLY_MAIN_COS_THETA_Z_CUT
+                                    { -COS_THETA_Z_CUT, COS_THETA_Z_CUT }
+#else
+                                    {}
+#endif
+        );
+
+        // M_jj: окно [min, max] 2 стрелки
+        drawMainSelectionHistograms(mainMjjMap, "Dijet Mass Distribution", "M_{jj} [GeV]",
+                                    (fs::path(mainSelDir) / "main_dijetMass.pdf").string(),
+#if APPLY_MAIN_DIJET_MASS_WINDOW
+                                    { DIJET_MASS_WINDOW_MIN_GEV, DIJET_MASS_WINDOW_MAX_GEV }
+#else
+                                    {}
+#endif
+        );
+
+        // Pmiss: окно [min, max] 2 стрелки
+        drawMainSelectionHistograms(mainPmissMap, "Missing Momentum Distribution",
+                                    "|P_{miss}| [GeV]",
+                                    (fs::path(mainSelDir) / "main_pmiss.pdf").string(),
+#if APPLY_MAIN_PMISS_CUT
+                                    { PMISS_CUT_MIN_GEV, PMISS_CUT_MAX_GEV }
+#else
+                                    {}
+#endif
+        );
+
+        std::cout << "Гистограммы основных отборов сохранены в: " << mainSelDir << "\n";
     }
 
-    std::string mainSelDir = (fs::path(outputBaseDir) / "main_selection").string();
-    fs::create_directories(mainSelDir);
-
-    // MET: окно [min, max] 2 стрелки
-    drawMainSelectionHistograms(mainMETmap, "MET Distribution", "MET_{jet} [GeV]",
-                                (fs::path(mainSelDir) / "main_met.pdf").string(),
-#if APPLY_MAIN_MET_CUT
-                                { MET_CUT_MIN_GEV, MET_CUT_MAX_GEV }
-#else
-                                {}
-#endif
-    );
-
-    // deltaPhi: один верхний предел 1 стрелка
-    drawMainSelectionHistograms(mainDPhiMap, "#Delta#phi Distribution", "#Delta#phi [rad]",
-                                (fs::path(mainSelDir) / "main_deltaPhi.pdf").string(),
-#if APPLY_MAIN_DELTA_PHI_CUT
-                                { DELTA_PHI_CUT_MAX }
-#else
-                                {}
-#endif
-    );
-
-    // |cos theta_Z|: симметричный порог — 2 стрелки
-    drawMainSelectionHistograms(mainCosTMap, "cos#theta_{Z} Distribution", "cos#theta_{Z}",
-                                (fs::path(mainSelDir) / "main_cosThetaZ.pdf").string(),
-#if APPLY_MAIN_COS_THETA_Z_CUT
-                                { -COS_THETA_Z_CUT, COS_THETA_Z_CUT }
-#else
-                                {}
-#endif
-    );
-
-    // M_jj: окно [min, max] 2 стрелки
-    drawMainSelectionHistograms(mainMjjMap, "Dijet Mass Distribution", "M_{jj} [GeV]",
-                                (fs::path(mainSelDir) / "main_dijetMass.pdf").string(),
-#if APPLY_MAIN_DIJET_MASS_WINDOW
-                                { DIJET_MASS_WINDOW_MIN_GEV, DIJET_MASS_WINDOW_MAX_GEV }
-#else
-                                {}
-#endif
-    );
-
-    // Pmiss: окно [min, max] 2 стрелки
-    drawMainSelectionHistograms(mainPmissMap, "Missing Momentum Distribution", "|P_{miss}| [GeV]",
-                                (fs::path(mainSelDir) / "main_pmiss.pdf").string(),
-#if APPLY_MAIN_PMISS_CUT
-                                { PMISS_CUT_MIN_GEV, PMISS_CUT_MAX_GEV }
-#else
-                                {}
-#endif
-    );
-
-    std::cout << "Гистограммы основных отборов сохранены в: " << mainSelDir << "\n";
+    if (exportCsv && csvFile.is_open()) {
+        csvFile.close();
+        std::cout << "[CSV] Выгрузка завершена." << std::endl;
+    }
 
     // Построение сравнительной гистограммы массы отдачи (qqHX и qqHinvi)
     std::string compOutput =
@@ -2735,6 +2895,9 @@ int main(int argc, char *argv[]) {
     for (auto &procEntry : mainSelHists)
         for (auto &histEntry : procEntry.second)
             delete histEntry.second;
+
+    if (h_booster)
+        XGBoosterFree(h_booster);
 
     return 0;
 }
