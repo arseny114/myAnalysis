@@ -1871,6 +1871,7 @@ void printUsage(const char *progName) {
            "гистограмм)\n"
         << "  -use-bdt                     Использовать BDT вместо основных отборов\n"
         << "  -s, --scan-mu                Запустить сканирование по mu\n"
+        << "  --template-fit               Выполнить шаблонный фит\n"
         << "  -a, --scan-fit-params        Запустить сканирование параметров адаптивности и бинов\n"
         << "\nПример:\n"
         << "  " << progName
@@ -1895,6 +1896,7 @@ int main(int argc, char *argv[]) {
     double bdtThreshold = DEFAULT_BDT_THRESHOLD;
     bool runScanMu = false;
     bool runScanFitParams = false;
+    bool runFit = false;
     bool exportCsv = false;
     bool useBdt = false;
 
@@ -1910,6 +1912,8 @@ int main(int argc, char *argv[]) {
             exportCsv = true;
         } else if (arg == "--use-bdt") {
             useBdt = true;
+        } else if (arg == "--template-fit") {
+            runFit = true;
         } else if (arg == "-s" || arg == "--scan-mu") {
             runScanMu = true;
         } else if (arg == "-a" || arg == "--scan-fit-params") {
@@ -2867,8 +2871,10 @@ int main(int argc, char *argv[]) {
     drawRecoilStack(processRecoilHists, RECOIL_STACK_ORDER, stackOutput);
 
     // Запуск шаблонного фита на накопленных данных
-    runMrecoilTemplateFit(vMrecoil_Signal_Weighted, vMrecoil_Bkg_Weighted, vMrecoil_qqHX_Weighted,
-                          fs::path(outputBaseDir).string());
+    if (runFit) {
+        runMrecoilTemplateFit(vMrecoil_Signal_Weighted, vMrecoil_Bkg_Weighted,
+                              vMrecoil_qqHX_Weighted, fs::path(outputBaseDir).string());
+    }
 
     // Запуск сканирования параметров адаптивности и числа бинов
     if (runScanFitParams) {
