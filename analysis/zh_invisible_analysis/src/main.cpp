@@ -17,13 +17,16 @@
 // - 2D распределение: E_photon(>PHOTON_ENERGY_CUT_GEV) vs M_recoil
 
 #include <RooAddPdf.h>
+#include <RooChebychev.h>
 #include <RooDataSet.h>
 #include <RooFitResult.h>
+#include <RooGaussian.h>
 #include <RooKeysPdf.h>
 #include <RooPlot.h>
 #include <RooRealVar.h>
 #include <TArrow.h>
 #include <TCanvas.h>
+#include <TF1.h>
 #include <TFile.h>
 #include <TH1F.h>
 #include <TH2F.h>
@@ -1362,6 +1365,466 @@ void runMrecoilTemplateFit(const std::vector<std::pair<double, double>> &vSignal
 }
 
 // =============================================================================
+// ФУНКЦИЯ runMrecoilAnalyticalFit (RooFit: RooKeysPdf + Chebyshev)
+// =============================================================================
+//
+// Выполняет аналитический фит распределения M_recoil методом расширенного
+// максимума правдоподобия (Extended Maximum Likelihood, EML):
+//
+//   - Сигнал: RooKeysPdf (непараметрическая ядерная оценка плотности из MC).
+//   - Фон: полином Чебышёва 4-й степени (RooChebychev).
+//
+void runMrecoilAnalyticalFit(const std::vector<std::pair<double, double>> &vSignal,
+                             const std::vector<std::pair<double, double>> &vBkg,
+                             const std::vector<std::pair<double, double>> &v_qqHX,
+                             const std::string &outputPath) {
+    if (vSignal.empty() || vBkg.empty()) {
+        std::cerr << "[AnalyticalFit] Ошибка: входные данные пусты!\n";
+        return;
+    }
+
+    std::cout << "\n[AnalyticalFit] =====================================================\n";
+    std::cout << "[AnalyticalFit] Запуск аналитического фита M_recoil (RooFit)\n";
+    std::cout << "[AnalyticalFit] Сигнал: RooKeysPdf\n";
+    std::cout << "[AnalyticalFit] Фон:    Chebyshev(4)\n";
+
+    // =========================================================================
+    // ШАГ 1: НАБЛЮДАЕМАЯ ПЕРЕМЕННАЯ
+    // =========================================================================
+    RooRealVar Mrecoil("Mrecoil", "M_{recoil} [GeV]", ANALYTICAL_FIT_MRECOIL_MIN,
+                       ANALYTICAL_FIT_MRECOIL_MAX);
+    Mrecoil.setRange("fitRange", ANALYTICAL_FIT_MRECOIL_MIN, ANALYTICAL_FIT_MRECOIL_MAX);
+
+    // =========================================================================
+    // ШАГ 2: СОЗДАНИЕ ДАТАСЕТОВ
+    // =========================================================================
+    RooRealVar wVar("eventWeight", "Event weight", 1e-9, 1e9);
+    RooArgSet argSet(Mrecoil, wVar);
+
+    // --- Шаблон сигнала ---
+    RooDataSet *dsSignalTemplate =
+        new RooDataSet("dsSignalTemplate", "Signal template", argSet, RooFit::WeightVar(wVar));
+    for (const auto &entry : vSignal) {
+        if (entry.first < ANALYTICAL_FIT_MRECOIL_MIN || entry.first > ANALYTICAL_FIT_MRECOIL_MAX)
+            continue;
+        Mrecoil.setVal(entry.first);
+        dsSignalTemplate->add(argSet, entry.second);
+    }
+
+    // --- Шаблон фона (vBkg + v_qqHX − vSignal) ---
+    RooDataSet *dsBkgTemplate =
+        new RooDataSet("dsBkgTemplate", "Background template", argSet, RooFit::WeightVar(wVar));
+    for (const auto &entry : vBkg) {
+        if (entry.first < ANALYTICAL_FIT_MRECOIL_MIN || entry.first > ANALYTICAL_FIT_MRECOIL_MAX)
+            continue;
+        Mrecoil.setVal(entry.first);
+        dsBkgTemplate->add(argSet, entry.second);
+    }
+    for (const auto &entry : v_qqHX) {
+        if (entry.first < ANALYTICAL_FIT_MRECOIL_MIN || entry.first > ANALYTICAL_FIT_MRECOIL_MAX)
+            continue;
+        Mrecoil.setVal(entry.first);
+        dsBkgTemplate->add(argSet, entry.second);
+    }
+    for (const auto &entry : vSignal) {
+        if (entry.first < ANALYTICAL_FIT_MRECOIL_MIN || entry.first > ANALYTICAL_FIT_MRECOIL_MAX)
+            continue;
+        Mrecoil.setVal(entry.first);
+        dsBkgTemplate->add(argSet, -entry.second);
+    }
+
+    // --- Псевдо-данные для общего фита (фон + mu * сигнал) ---
+    RooDataSet *dsData =
+        new RooDataSet("dsData", "Pseudo-data (Bkg + mu*Signal)", argSet, RooFit::WeightVar(wVar));
+    for (const auto &entry : vBkg) {
+        if (entry.first < ANALYTICAL_FIT_MRECOIL_MIN || entry.first > ANALYTICAL_FIT_MRECOIL_MAX)
+            continue;
+        Mrecoil.setVal(entry.first);
+        dsData->add(argSet, entry.second);
+    }
+    for (const auto &entry : v_qqHX) {
+        if (entry.first < ANALYTICAL_FIT_MRECOIL_MIN || entry.first > ANALYTICAL_FIT_MRECOIL_MAX)
+            continue;
+        Mrecoil.setVal(entry.first);
+        dsData->add(argSet, entry.second);
+    }
+    for (const auto &entry : vSignal) {
+        if (entry.first < ANALYTICAL_FIT_MRECOIL_MIN || entry.first > ANALYTICAL_FIT_MRECOIL_MAX)
+            continue;
+        Mrecoil.setVal(entry.first);
+        // Вычитаем сигнал из фона (он туда попал через vBkg/v_qqHX) и добавляем mu*сигнал
+        dsData->add(argSet, -entry.second);
+        dsData->add(argSet, ANALYTICAL_FIT_PSEUDO_MU * entry.second);
+    }
+
+    double sumW_Data = dsData->sumEntries();
+    std::cout << "[AnalyticalFit] Суммарный вес данных: " << sumW_Data << "\n";
+    std::cout << "[AnalyticalFit] Событий в сигнальном шаблоне: " << dsSignalTemplate->sumEntries()
+              << "\n";
+    std::cout << "[AnalyticalFit] Событий в фоновом шаблоне:   " << dsBkgTemplate->sumEntries()
+              << "\n";
+
+    // =========================================================================
+    // ШАГ 3: ПОСТРОЕНИЕ ШАБЛОНА СИГНАЛА (RooKeysPdf)
+    // =========================================================================
+    std::cout << "\n[AnalyticalFit] Построение шаблона сигнала (RooKeysPdf)...\n";
+
+    auto mirrorOpt = FIT_KEYSPDF_MIRROR ? RooKeysPdf::MirrorBoth : RooKeysPdf::NoMirror;
+    RooKeysPdf pdfSigInit("pdfSigInit", "Signal PDF (RooKeysPdf)", Mrecoil, *dsSignalTemplate,
+                          mirrorOpt, FIT_KEYSPDF_ADAPTIVITY_SIGNAL);
+    pdfSigInit.setNormRange("fitRange");
+
+    if (dsSignalTemplate->numEntries() > 0) {
+        // --- График шаблона сигнала с χ²/ndf ---
+        TCanvas *cSigInit = new TCanvas("cSigInit", "Signal Template Check", 800, 600);
+        cSigInit->SetLeftMargin(0.13);
+        cSigInit->SetRightMargin(0.05);
+        cSigInit->SetBottomMargin(0.12);
+        cSigInit->SetTopMargin(0.08);
+
+        RooPlot *frameSigInit = Mrecoil.frame(RooFit::Title("Signal Template (RooKeysPdf)"));
+        dsSignalTemplate->plotOn(frameSigInit, RooFit::Binning(ANALYTICAL_FIT_PLOT_BINS),
+                                 RooFit::MarkerStyle(20), RooFit::MarkerSize(1.0),
+                                 RooFit::DataError(RooAbsData::SumW2));
+        pdfSigInit.plotOn(frameSigInit, RooFit::LineColor(kBlue), RooFit::LineWidth(2));
+        frameSigInit->Draw();
+
+        double chi2_sig = frameSigInit->chiSquare();
+
+        TPaveText *ptSig = new TPaveText(0.2, 0.8, 0.45, 0.92, "NDC NB");
+        ptSig->SetFillColor(0);
+        ptSig->SetBorderSize(1);
+        ptSig->SetTextSize(0.020);
+        ptSig->AddText("Signal Template (RooKeysPdf)");
+        ptSig->AddText(Form("Adaptivity = %.2f", FIT_KEYSPDF_ADAPTIVITY_SIGNAL));
+        ptSig->AddText(Form("#chi^{2}/ndf = %.2f", chi2_sig));
+        ptSig->Draw();
+
+        cSigInit->SaveAs((outputPath + "/analytical_fit_signal_only.pdf").c_str());
+        delete ptSig;
+        delete frameSigInit;
+        delete cSigInit;
+    }
+
+    // =========================================================================
+    // ШАГ 4: ФИТ ЧИСТОГО ФОНА (Только Chebyshev)
+    // =========================================================================
+    std::cout << "\n[AnalyticalFit] Фит чистого фона (Chebyshev)...\n";
+
+    RooRealVar c0_init("c0_init", "Chebyshev coeff 0", 0.0, -1.0, 1.0);
+    RooRealVar c1_init("c1_init", "Chebyshev coeff 1", 0.0, -1.0, 1.0);
+    RooRealVar c2_init("c2_init", "Chebyshev coeff 2", 0.0, -1.0, 1.0);
+    RooRealVar c3_init("c3_init", "Chebyshev coeff 3", 0.0, -1.0, 1.0);
+
+    RooChebychev pdfBkgInit("pdfBkgInit", "Chebyshev Background", Mrecoil,
+                            RooArgList(c0_init, c1_init, c2_init, c3_init));
+
+    RooFitResult *fitResBkgInit =
+        pdfBkgInit.fitTo(*dsBkgTemplate, RooFit::Range("fitRange"), RooFit::SumW2Error(kTRUE),
+                         RooFit::Strategy(1), RooFit::PrintLevel(-1), RooFit::Save(true));
+
+    std::cout << "[AnalyticalFit] Параметры фона (чистый фит):\n";
+    std::cout << "  c0 = " << c0_init.getVal() << " ± " << c0_init.getError() << "\n";
+    std::cout << "  c1 = " << c1_init.getVal() << " ± " << c1_init.getError() << "\n";
+    std::cout << "  c2 = " << c2_init.getVal() << " ± " << c2_init.getError() << "\n";
+    std::cout << "  c3 = " << c3_init.getVal() << " ± " << c3_init.getError() << "\n";
+
+    // --- График чистого фона с χ²/ndf ---
+    TCanvas *cBkgInit = new TCanvas("cBkgInit", "Background Template Fit", 800, 600);
+    cBkgInit->SetLeftMargin(0.13);
+    cBkgInit->SetRightMargin(0.05);
+    cBkgInit->SetBottomMargin(0.12);
+    cBkgInit->SetTopMargin(0.08);
+
+    RooPlot *frameBkgInit = Mrecoil.frame(RooFit::Title("Background Template Fit (Chebyshev)"));
+    dsBkgTemplate->plotOn(frameBkgInit, RooFit::Binning(ANALYTICAL_FIT_PLOT_BINS),
+                          RooFit::MarkerStyle(20), RooFit::MarkerSize(1.0),
+                          RooFit::DataError(RooAbsData::SumW2), RooFit::Name("dsBkgTemplateData"));
+    pdfBkgInit.plotOn(frameBkgInit, RooFit::LineColor(kRed), RooFit::LineWidth(2),
+                      RooFit::Name("pdfBkgInitFit"));
+    frameBkgInit->Draw();
+
+    double chi2_bkg = frameBkgInit->chiSquare();
+
+    TLegend *legBkg = new TLegend(0.76, 0.8, 0.98, 0.92);
+    legBkg->SetBorderSize(1);
+    legBkg->SetFillColor(0);
+    legBkg->SetTextSize(0.023);
+    legBkg->AddEntry(frameBkgInit->findObject("dsBkgTemplateData"), "Background Data", "lep");
+    legBkg->AddEntry(frameBkgInit->findObject("pdfBkgInitFit"), "Chebyshev Fit", "l");
+    legBkg->Draw();
+
+    TPaveText *ptBkg = new TPaveText(0.2, 0.8, 0.45, 0.92, "NDC NB");
+    ptBkg->SetFillColor(0);
+    ptBkg->SetBorderSize(1);
+    ptBkg->SetTextSize(0.020);
+    ptBkg->AddText("Background Fit (Chebyshev)");
+    ptBkg->AddText(Form("c_{0} = %.3f #pm %.3f", c0_init.getVal(), c0_init.getError()));
+    ptBkg->AddText(Form("c_{1} = %.3f #pm %.3f", c1_init.getVal(), c1_init.getError()));
+    ptBkg->AddText(Form("c_{2} = %.3f #pm %.3f", c2_init.getVal(), c2_init.getError()));
+    ptBkg->AddText(Form("c_{3} = %.3f #pm %.3f", c3_init.getVal(), c3_init.getError()));
+    ptBkg->AddText(Form("#chi^{2}/ndf = %.2f", chi2_bkg));
+    ptBkg->Draw();
+
+    cBkgInit->SaveAs((outputPath + "/analytical_fit_background_only.pdf").c_str());
+    delete legBkg;
+    delete ptBkg;
+    delete frameBkgInit;
+    delete cBkgInit;
+
+    // =========================================================================
+    // ШАГ 5: ПАРАМЕТРЫ НОРМИРОВКИ
+    // =========================================================================
+
+    // Вычисляем ожидаемые значения фона и сигнала
+    double expectedNS = ANALYTICAL_FIT_PSEUDO_MU * dsSignalTemplate->sumEntries();
+    double expectedNB = sumW_Data - expectedNS;
+
+    // Создаем свободные параметры числа фона и сигнала (фит будет их варьировать)
+    RooRealVar nS("nS", "Signal yield",
+                  expectedNS,                                // начальное значение
+                  0.0,                                       // minValue
+                  10.0 * std::max(expectedNS, 1.0) + 100.0); // maxValue
+    RooRealVar nB("nB", "Background yield", expectedNB, 0.0,
+                  3.0 * std::max(expectedNB, 1.0) + 1000.0);
+
+    // =========================================================================
+    // ШАГ 6: МОДЕЛЬ СИГНАЛА (RooKeysPdf)
+    // Форма сигнала уже зафиксирована самим фактом построения RooKeysPdf из MC шаблона.
+    // =========================================================================
+    RooKeysPdf pdfSig("pdfSig", "Signal PDF (RooKeysPdf)", Mrecoil, *dsSignalTemplate, mirrorOpt,
+                      FIT_KEYSPDF_ADAPTIVITY_SIGNAL);
+    pdfSig.setNormRange("fitRange");
+
+    // =========================================================================
+    // ШАГ 7: МОДЕЛЬ ФОНА (Только Chebyshev)
+    // =========================================================================
+    RooRealVar c0("c0", "Chebyshev coeff 0", c0_init.getVal(), -1.0, 1.0);
+    RooRealVar c1("c1", "Chebyshev coeff 1", c1_init.getVal(), -1.0, 1.0);
+    RooRealVar c2("c2", "Chebyshev coeff 2", c2_init.getVal(), -1.0, 1.0);
+    RooRealVar c3("c3", "Chebyshev coeff 3", c3_init.getVal(), -1.0, 1.0);
+
+    RooChebychev pdfBkg("pdfBkg", "Chebyshev Background", Mrecoil, RooArgList(c0, c1, c2, c3));
+
+    // =========================================================================
+    // ШАГ 8: КОМБИНИРОВАННАЯ МОДЕЛЬ (extended)
+    // =========================================================================
+    RooAddPdf model("model", "Signal + Background", RooArgList(pdfSig, pdfBkg), RooArgList(nS, nB));
+
+    // =========================================================================
+    // ШАГ 9: ФИТ H0 (только фон, nS = 0)
+    // =========================================================================
+    std::cout << "\n[AnalyticalFit] Фит H0: только фон...\n";
+
+    // Фиксируем число сигнала равным 0, выставляем самое близкое к правильному начальное значение
+    // для фона
+    nS.setVal(0.0);
+    nS.setConstant(kTRUE);
+    nB.setVal(expectedNB);
+
+    RooFitResult *fitResB = model.fitTo(*dsData, RooFit::Extended(kTRUE), RooFit::Range("fitRange"),
+                                        RooFit::SumW2Error(kTRUE), RooFit::Strategy(1),
+                                        RooFit::Minimizer("Minuit2", "migrad"),
+                                        RooFit::PrintLevel(-1), RooFit::Save(kTRUE));
+
+    // Сохраняем параметры фона из фита H0
+    double c0_H0 = c0.getVal();
+    double c1_H0 = c1.getVal();
+    double c2_H0 = c2.getVal();
+    double c3_H0 = c3.getVal();
+    double nll_b = fitResB ? fitResB->minNll() : 0.0;
+    double fit_nB_H0 = nB.getVal();
+
+    if (!fitResB || fitResB->status() != 0)
+        std::cerr << "[AnalyticalFit] Предупреждение: фит H0 статус "
+                  << (fitResB ? fitResB->status() : -1) << "\n";
+
+    std::cout << "[AnalyticalFit] H0: nB = " << fit_nB_H0 << ", NLL = " << nll_b << "\n";
+
+    // =========================================================================
+    // ШАГ 10: ФИТ H1 (сигнал + фон)
+    // =========================================================================
+    std::cout << "[AnalyticalFit] Фит H1: сигнал + фон...\n";
+
+    // Стартуем из параметров H0 для обеспечения вложенности
+    c0.setVal(c0_H0);
+    c1.setVal(c1_H0);
+    c2.setVal(c2_H0);
+    c3.setVal(c3_H0);
+    nB.setVal(fit_nB_H0);
+
+    nS.setConstant(kFALSE);
+    nS.setVal(expectedNS);
+    nB.setVal(expectedNB);
+
+    RooFitResult *fitResSB = model.fitTo(
+        *dsData, RooFit::Extended(kTRUE), RooFit::Range("fitRange"), RooFit::SumW2Error(kTRUE),
+        RooFit::Strategy(1), RooFit::Minimizer("Minuit2", "migrad"), RooFit::PrintLevel(-1),
+        RooFit::Save(kTRUE));
+
+    // Сохраняем параметры фона из фита H1
+    double c0_H1 = c0.getVal();
+    double c1_H1 = c1.getVal();
+    double c2_H1 = c2.getVal();
+    double c3_H1 = c3.getVal();
+    double nll_sb = fitResSB ? fitResSB->minNll() : 0.0;
+    double fit_nS = nS.getVal(), fit_nS_err = nS.getError();
+    double fit_nB = nB.getVal(), fit_nB_err = nB.getError();
+
+    if (!fitResSB || fitResSB->status() != 0)
+        std::cerr << "[AnalyticalFit] Предупреждение: фит H1 статус "
+                  << (fitResSB ? fitResSB->status() : -1) << "\n";
+
+    std::cout << "[AnalyticalFit] H1: nS = " << fit_nS << ", nB = " << fit_nB
+              << ", NLL = " << nll_sb << "\n";
+
+    // =========================================================================
+    // ШАГ 11: ОЦЕНКА ЗНАЧИМОСТИ
+    // =========================================================================
+    double q0 = 2.0 * (nll_b - nll_sb);
+    if (q0 < 0.0)
+        q0 = 0.0;
+
+    double pValue = TMath::Prob(q0, 1);
+    double significance_lrt = std::sqrt(q0);
+    double significance_simple =
+        (fit_nS > 0 && (fit_nS + fit_nB) > 0) ? fit_nS / std::sqrt(fit_nS + fit_nB) : 0.0;
+
+    std::cout << "\n[AnalyticalFit] =====================================================\n";
+    std::cout << "[AnalyticalFit] РЕЗУЛЬТАТЫ ФИТА\n";
+    std::cout << "[AnalyticalFit] -----------------------------------------------------\n";
+    std::cout << "[AnalyticalFit] Сигнал (RooKeysPdf):\n";
+    std::cout << "[AnalyticalFit]   nS      = " << fit_nS << " ± " << fit_nS_err << "\n";
+    std::cout << "[AnalyticalFit]   expnS   = " << expectedNS << "\n";
+    std::cout << "[AnalyticalFit] Фон (Chebyshev):\n";
+    std::cout << "[AnalyticalFit]   c0    = " << c0.getVal() << " ± " << c0.getError() << "\n";
+    std::cout << "[AnalyticalFit]   c1    = " << c1.getVal() << " ± " << c1.getError() << "\n";
+    std::cout << "[AnalyticalFit]   c2    = " << c2.getVal() << " ± " << c2.getError() << "\n";
+    std::cout << "[AnalyticalFit]   c3    = " << c3.getVal() << " ± " << c3.getError() << "\n";
+    std::cout << "[AnalyticalFit]   nB    = " << fit_nB << " ± " << fit_nB_err << "\n";
+    std::cout << "[AnalyticalFit]   expnB = " << expectedNB << "\n";
+    std::cout << "[AnalyticalFit] -----------------------------------------------------\n";
+    std::cout << "[AnalyticalFit] NLL (H0)  = " << nll_b << "\n";
+    std::cout << "[AnalyticalFit] NLL (H1)  = " << nll_sb << "\n";
+    std::cout << "[AnalyticalFit] q0        = " << q0 << "\n";
+    std::cout << "[AnalyticalFit] p-value   = " << pValue << "\n";
+    std::cout << "[AnalyticalFit] -----------------------------------------------------\n";
+    std::cout << "[AnalyticalFit] Significance (simple): Z = " << significance_simple << " σ\n";
+    std::cout << "[AnalyticalFit] Significance (LRT):    Z = " << significance_lrt << " σ\n";
+    std::cout << "[AnalyticalFit] =====================================================\n\n";
+
+    // =========================================================================
+    // ШАГ 12: ВИЗУАЛИЗАЦИЯ ОБЩЕГО ФИТА (с гипотезой H0)
+    // =========================================================================
+    TCanvas *cFit = new TCanvas("cAnalyticalFit", "M_{recoil} Analytical Fit", 900, 700);
+    cFit->SetLeftMargin(0.13);
+    cFit->SetRightMargin(0.05);
+    cFit->SetBottomMargin(0.12);
+    cFit->SetTopMargin(0.08);
+
+    RooPlot *frame = Mrecoil.frame(RooFit::Title("Total Data (Bkg + Signal)"));
+
+    // 1. Данные
+    dsData->plotOn(frame, RooFit::Binning(ANALYTICAL_FIT_PLOT_BINS), RooFit::MarkerStyle(20),
+                   RooFit::MarkerSize(1.0), RooFit::DataError(RooAbsData::SumW2),
+                   RooFit::Name("data"));
+
+    // 2. H1: полный фит (сигнал + фон) - зелёная сплошная линия
+    model.plotOn(frame, RooFit::LineColor(kGreen + 2), RooFit::LineWidth(2),
+                 RooFit::Name("H1_total"));
+
+    // 3. H0: только фон.
+    //
+    // H0: восстанавливаем параметры из фита H0
+    c0.setVal(c0_H0);
+    c1.setVal(c1_H0);
+    c2.setVal(c2_H0);
+    c3.setVal(c3_H0);
+    nB.setVal(fit_nB_H0);
+
+    // Не меняем nS и nB у основного model, а создаём отдельный PDF
+    RooAddPdf modelH0("modelH0", "Background only (H0)", RooArgList(pdfBkg), RooArgList(nB));
+    modelH0.plotOn(frame, RooFit::LineColor(kBlack), RooFit::LineStyle(kDotted),
+                   RooFit::LineWidth(2), RooFit::Name("H0_only_bkg"));
+
+    // 4. Компоненты H1 (сигнал и фон из полного фита)
+    // Восстанавливаем параметры H1 для отрисовки компонент
+    c0.setVal(c0_H1);
+    c1.setVal(c1_H1);
+    c2.setVal(c2_H1);
+    c3.setVal(c3_H1);
+    nB.setVal(fit_nB);
+
+    model.plotOn(frame, RooFit::Components(pdfBkg), RooFit::LineColor(kRed),
+                 RooFit::LineStyle(kDashed), RooFit::LineWidth(2), RooFit::Name("H1_bkg"));
+    model.plotOn(frame, RooFit::Components(pdfSig), RooFit::LineColor(kBlue),
+                 RooFit::LineStyle(kDashed), RooFit::LineWidth(2), RooFit::Name("H1_sig"));
+
+    frame->Draw();
+
+    double yMax = frame->GetYaxis()->GetXmax() * 0.95;
+    TLine *lineMin = new TLine(ANALYTICAL_FIT_MRECOIL_MIN, 0, ANALYTICAL_FIT_MRECOIL_MIN, yMax);
+    TLine *lineMax = new TLine(ANALYTICAL_FIT_MRECOIL_MAX, 0, ANALYTICAL_FIT_MRECOIL_MAX, yMax);
+    lineMin->SetLineStyle(kDotted);
+    lineMin->SetLineColor(kGray + 1);
+    lineMax->SetLineStyle(kDotted);
+    lineMax->SetLineColor(kGray + 1);
+    lineMin->Draw("SAME");
+    lineMax->Draw("SAME");
+
+    TLegend *leg = new TLegend(0.7, 0.85, 0.98, 0.98);
+    leg->SetBorderSize(1);
+    leg->SetFillColor(0);
+    leg->SetTextSize(0.020);
+    leg->AddEntry(frame->findObject("data"), "Pseudo-Data", "lep");
+    leg->AddEntry(frame->findObject("H1_total"), "H1: Signal + Background", "l");
+    leg->AddEntry(frame->findObject("H0_only_bkg"), "H0: Background only", "l");
+    leg->AddEntry(frame->findObject("H1_sig"), "Signal component (H1)", "l");
+    leg->AddEntry(frame->findObject("H1_bkg"), "Background component (H1)", "l");
+    leg->Draw();
+
+    TPaveText *info = new TPaveText(0.15, 0.68, 0.35, 0.92, "NDC NB");
+    info->SetFillColor(0);
+    info->SetFillStyle(1001);
+    info->SetBorderSize(1);
+    info->SetTextAlign(12);
+    info->SetTextSize(0.020);
+    info->AddText("Total Fit Results");
+    info->AddText("Signal: RooKeysPdf");
+    info->AddText(Form("nS = %.1f #pm %.1f", fit_nS, fit_nS_err));
+    info->AddText(Form("nB = %.1f #pm %.1f", fit_nB, fit_nB_err));
+
+    // Вычисляем chi2 явно для H0 и H1 и данных data
+    info->AddText(Form("H0: #chi^{2}/ndf = %.2f", frame->chiSquare("H0_only_bkg", "data")));
+    info->AddText(Form("H1: #chi^{2}/ndf = %.2f", frame->chiSquare("H1_total", "data")));
+    info->AddText(Form("Z (LRT)    = %.2f #sigma", significance_lrt));
+    info->AddText(Form("p-value    = %.3g", pValue));
+    info->Draw();
+
+    cFit->SaveAs((outputPath + "/analytical_fit_total.pdf").c_str());
+    std::cout << "[AnalyticalFit] График сохранен: " << outputPath << "/analytical_fit_total.pdf\n";
+
+    // =========================================================================
+    // ОЧИСТКА ПАМЯТИ
+    // =========================================================================
+    delete leg;
+    delete info;
+    delete lineMin;
+    delete lineMax;
+    delete frame;
+    delete cFit;
+    delete dsData;
+    delete dsSignalTemplate;
+    delete dsBkgTemplate;
+    if (fitResBkgInit)
+        delete fitResBkgInit;
+    if (fitResB)
+        delete fitResB;
+    if (fitResSB)
+        delete fitResSB;
+}
+
+// =============================================================================
 // ФУНКЦИЯ runMrecoilScanMu
 // =============================================================================
 //
@@ -1872,6 +2335,7 @@ void printUsage(const char *progName) {
         << "  -use-bdt                     Использовать BDT вместо основных отборов\n"
         << "  -s, --scan-mu                Запустить сканирование по mu\n"
         << "  --template-fit               Выполнить шаблонный фит\n"
+        << "  --analytical-fit             Выполнить аналитический фит (Gauss + Polynomial)\n"
         << "  -a, --scan-fit-params        Запустить сканирование параметров адаптивности и бинов\n"
         << "\nПример:\n"
         << "  " << progName
@@ -1897,6 +2361,7 @@ int main(int argc, char *argv[]) {
     bool runScanMu = false;
     bool runScanFitParams = false;
     bool runFit = false;
+    bool runAnalyticalFit = false;
     bool exportCsv = false;
     bool useBdt = false;
 
@@ -1914,6 +2379,8 @@ int main(int argc, char *argv[]) {
             useBdt = true;
         } else if (arg == "--template-fit") {
             runFit = true;
+        } else if (arg == "--analytical-fit") {
+            runAnalyticalFit = true;
         } else if (arg == "-s" || arg == "--scan-mu") {
             runScanMu = true;
         } else if (arg == "-a" || arg == "--scan-fit-params") {
@@ -2874,6 +3341,11 @@ int main(int argc, char *argv[]) {
     if (runFit) {
         runMrecoilTemplateFit(vMrecoil_Signal_Weighted, vMrecoil_Bkg_Weighted,
                               vMrecoil_qqHX_Weighted, fs::path(outputBaseDir).string());
+    }
+
+    if (runAnalyticalFit) {
+        runMrecoilAnalyticalFit(vMrecoil_Signal_Weighted, vMrecoil_Bkg_Weighted,
+                                vMrecoil_qqHX_Weighted, fs::path(outputBaseDir).string());
     }
 
     // Запуск сканирования параметров адаптивности и числа бинов

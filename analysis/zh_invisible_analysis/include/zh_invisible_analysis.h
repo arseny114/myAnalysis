@@ -46,7 +46,7 @@ const double PHOTON_ISO_COS_CONE_ANGLE = 0.985;    // cosConeAngle для фот
 
 // --- 6. Кат на MET (Missing Transverse Energy) ---
 #define APPLY_MAIN_MET_CUT true
-const double MET_CUT_MIN_GEV = 30.0;
+const double MET_CUT_MIN_GEV = 20.0;
 const double MET_CUT_MAX_GEV = 60.0;
 
 // --- 7. Кат на deltaPhi между джетами ---
@@ -60,12 +60,12 @@ const double COS_THETA_Z_CUT = 0.7;
 // --- 9. Окно инвариантной массы диджета (ГэВ) ---
 #define APPLY_MAIN_DIJET_MASS_WINDOW true
 #define DIJET_MASS_WINDOW_MIN_GEV 75.0
-#define DIJET_MASS_WINDOW_MAX_GEV 100.0
+#define DIJET_MASS_WINDOW_MAX_GEV 105.0
 
 // --- 10. Кат на Pmiss ---
 #define APPLY_MAIN_PMISS_CUT true
-const double PMISS_CUT_MIN_GEV = 30.0;
-const double PMISS_CUT_MAX_GEV = 70.0;
+const double PMISS_CUT_MIN_GEV = 20.0;
+const double PMISS_CUT_MAX_GEV = 80.0;
 
 // --- 11. Окно массы отдачи (ГэВ) ---
 #define APPLY_MAIN_RECOIL_MASS_WINDOW false
@@ -474,5 +474,13 @@ const double SCAN_ADAPT_BGD_STEP = 0.25;
 
 // Имя выходного файла
 const std::string FIT_OUTPUT_FILENAME = "template_fit_recoil.pdf";
+
+// =============================================================================
+// НАСТРОЙКИ АНАЛИТИЧЕСКОГО ФИТА Mrecoil (Гаусс + Полином)
+// =============================================================================
+const double ANALYTICAL_FIT_MRECOIL_MIN = 100.0;
+const double ANALYTICAL_FIT_MRECOIL_MAX = 155.0;
+const int ANALYTICAL_FIT_PLOT_BINS = 100;
+const double ANALYTICAL_FIT_PSEUDO_MU = 10.59;
 
 #endif // ZH_INVISIBLE_ANALYSIS_H
