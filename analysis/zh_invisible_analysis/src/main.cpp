@@ -1891,6 +1891,252 @@ void runMrecoilAnalyticalFit(const std::vector<std::pair<double, double>> &vSign
 }
 
 // =============================================================================
+// ФУНКЦИЯ runMrecoilAnalyticalScanMu
+// =============================================================================
+//
+// Выполняет сканирование по параметру mu для аналитического фита (RooKeysPdf + Chebyshev)
+// с целью построения зависимости Z_LRT от mu и поиска mu для достижения 5 сигм.
+void runMrecoilAnalyticalScanMu(const std::vector<std::pair<double, double>> &vSignal,
+                                const std::vector<std::pair<double, double>> &vBkg,
+                                const std::vector<std::pair<double, double>> &v_qqHX,
+                                const std::string &outputPath) {
+    std::cout << "\n[AnalyticalScan] ====================================================\n";
+    std::cout << "[AnalyticalScan] Запуск сканирования по mu (Аналитический фит)\n";
+    std::cout << "[AnalyticalScan] Диапазон mu: [" << ANALYTICAL_SCAN_MU_MIN << ", "
+              << ANALYTICAL_SCAN_MU_MAX << "]\n";
+    std::cout << "[AnalyticalScan] Шаг mu: " << ANALYTICAL_SCAN_MU_STEP << "\n";
+    std::cout << "[AnalyticalScan] Целевая значимость: " << ANALYTICAL_SCAN_Z_TARGET << " σ\n";
+
+    // 1. Подготовка наблюдаемой переменной и аргументов
+    RooRealVar Mrecoil("Mrecoil", "M_{recoil} [GeV]", ANALYTICAL_FIT_MRECOIL_MIN,
+                       ANALYTICAL_FIT_MRECOIL_MAX);
+    Mrecoil.setRange("fitRange", ANALYTICAL_FIT_MRECOIL_MIN, ANALYTICAL_FIT_MRECOIL_MAX);
+    RooRealVar wVar("eventWeight", "Event weight", 1e-9, 1e9);
+    RooArgSet argSet(Mrecoil, wVar);
+
+    // 2. Создание шаблонов
+    RooDataSet *dsSignalTemplate =
+        new RooDataSet("dsSignalTemplate", "Signal template", argSet, RooFit::WeightVar(wVar));
+    for (const auto &entry : vSignal) {
+        if (entry.first < ANALYTICAL_FIT_MRECOIL_MIN || entry.first > ANALYTICAL_FIT_MRECOIL_MAX)
+            continue;
+        Mrecoil.setVal(entry.first);
+        dsSignalTemplate->add(argSet, entry.second);
+    }
+
+    RooDataSet *dsBkgTemplate =
+        new RooDataSet("dsBkgTemplate", "Background template", argSet, RooFit::WeightVar(wVar));
+    for (const auto &entry : vBkg) {
+        if (entry.first < ANALYTICAL_FIT_MRECOIL_MIN || entry.first > ANALYTICAL_FIT_MRECOIL_MAX)
+            continue;
+        Mrecoil.setVal(entry.first);
+        dsBkgTemplate->add(argSet, entry.second);
+    }
+    for (const auto &entry : v_qqHX) {
+        if (entry.first < ANALYTICAL_FIT_MRECOIL_MIN || entry.first > ANALYTICAL_FIT_MRECOIL_MAX)
+            continue;
+        Mrecoil.setVal(entry.first);
+        dsBkgTemplate->add(argSet, entry.second);
+    }
+    for (const auto &entry : vSignal) {
+        if (entry.first < ANALYTICAL_FIT_MRECOIL_MIN || entry.first > ANALYTICAL_FIT_MRECOIL_MAX)
+            continue;
+        Mrecoil.setVal(entry.first);
+        dsBkgTemplate->add(argSet, -entry.second); // Вычитаем сигнал из qqHX
+    }
+
+    // 3. Построение PDF
+    auto mirrorOpt = FIT_KEYSPDF_MIRROR ? RooKeysPdf::MirrorBoth : RooKeysPdf::NoMirror;
+    RooKeysPdf pdfSig("pdfSig_scan", "Signal PDF", Mrecoil, *dsSignalTemplate, mirrorOpt,
+                      FIT_KEYSPDF_ADAPTIVITY_SIGNAL);
+    pdfSig.setNormRange("fitRange");
+
+    // Предварительный фит чистого фона для получения хороших стартовых значений Чебышева
+    RooRealVar c0_init("c0_init", "c0", 0.0, -1.0, 1.0);
+    RooRealVar c1_init("c1_init", "c1", 0.0, -1.0, 1.0);
+    RooRealVar c2_init("c2_init", "c2", 0.0, -1.0, 1.0);
+    RooRealVar c3_init("c3_init", "c3", 0.0, -1.0, 1.0);
+    RooChebychev pdfBkgInit("pdfBkgInit", "Background", Mrecoil,
+                            RooArgList(c0_init, c1_init, c2_init, c3_init));
+    pdfBkgInit.fitTo(*dsBkgTemplate, RooFit::Range("fitRange"), RooFit::SumW2Error(kTRUE),
+                     RooFit::PrintLevel(-1));
+
+    // 4. Параметры модели
+    RooRealVar c0("c0", "c0", c0_init.getVal(), -1.0, 1.0);
+    RooRealVar c1("c1", "c1", c1_init.getVal(), -1.0, 1.0);
+    RooRealVar c2("c2", "c2", c2_init.getVal(), -1.0, 1.0);
+    RooRealVar c3("c3", "c3", c3_init.getVal(), -1.0, 1.0);
+    RooChebychev pdfBkg("pdfBkg", "Chebyshev Background", Mrecoil, RooArgList(c0, c1, c2, c3));
+
+    double sumW_S = dsSignalTemplate->sumEntries();
+    double sumW_B = dsBkgTemplate->sumEntries();
+
+    RooRealVar nS("nS", "Signal yield", 0.0, 0.0, 50.0 * sumW_S);
+    RooRealVar nB("nB", "Background yield", sumW_B, 0.0, 10.0 * sumW_B);
+    RooAddPdf model("model", "Signal + Background", RooArgList(pdfSig, pdfBkg), RooArgList(nS, nB));
+
+    // Контейнеры для результатов
+    std::vector<double> muValues, zValues;
+
+    // 5. Цикл сканирования
+    int nSteps = 1 + static_cast<int>((ANALYTICAL_SCAN_MU_MAX - ANALYTICAL_SCAN_MU_MIN) /
+                                      ANALYTICAL_SCAN_MU_STEP);
+    for (int i = 0; i < nSteps; ++i) {
+        double mu = ANALYTICAL_SCAN_MU_MIN + i * ANALYTICAL_SCAN_MU_STEP;
+
+        // Формируем псевдоданные для текущего mu
+        RooDataSet *dsData =
+            new RooDataSet("dsData_scan", "Pseudo-data", argSet, RooFit::WeightVar(wVar));
+        for (const auto &entry : vBkg) {
+            if (entry.first < ANALYTICAL_FIT_MRECOIL_MIN ||
+                entry.first > ANALYTICAL_FIT_MRECOIL_MAX)
+                continue;
+            Mrecoil.setVal(entry.first);
+            dsData->add(argSet, entry.second);
+        }
+        for (const auto &entry : v_qqHX) {
+            if (entry.first < ANALYTICAL_FIT_MRECOIL_MIN ||
+                entry.first > ANALYTICAL_FIT_MRECOIL_MAX)
+                continue;
+            Mrecoil.setVal(entry.first);
+            dsData->add(argSet, entry.second);
+        }
+        for (const auto &entry : vSignal) {
+            if (entry.first < ANALYTICAL_FIT_MRECOIL_MIN ||
+                entry.first > ANALYTICAL_FIT_MRECOIL_MAX)
+                continue;
+            Mrecoil.setVal(entry.first);
+            dsData->add(argSet, -entry.second);     // Вычитаем сигнал из qqHX
+            dsData->add(argSet, mu * entry.second); // Добавляем mu * сигнал
+        }
+
+        // --- ФИТ H0 (только фон) ---
+        nS.setVal(0.0);
+        nS.setConstant(kTRUE);
+        nB.setVal(sumW_B);
+        c0.setVal(c0_init.getVal());
+        c1.setVal(c1_init.getVal());
+        c2.setVal(c2_init.getVal());
+        c3.setVal(c3_init.getVal());
+
+        RooFitResult *fitResB =
+            model.fitTo(*dsData, RooFit::Extended(kTRUE), RooFit::Range("fitRange"),
+                        RooFit::SumW2Error(kTRUE), RooFit::PrintLevel(-1), RooFit::Save(kTRUE));
+        double nll_b = fitResB ? fitResB->minNll() : 0.0;
+        delete fitResB;
+
+        // --- ФИТ H1 (сигнал + фон) ---
+        nS.setConstant(kFALSE);
+        nS.setVal(mu * sumW_S);
+        nB.setVal(sumW_B);
+
+        RooFitResult *fitResSB =
+            model.fitTo(*dsData, RooFit::Extended(kTRUE), RooFit::Range("fitRange"),
+                        RooFit::SumW2Error(kTRUE), RooFit::PrintLevel(-1), RooFit::Save(kTRUE));
+        double nll_sb = fitResSB ? fitResSB->minNll() : 0.0;
+        delete fitResSB;
+
+        // Вычисление значимости
+        double q0 = 2.0 * (nll_b - nll_sb);
+        if (q0 < 0.0)
+            q0 = 0.0; // Защита от численных артефактов
+        double z_lrt = std::sqrt(q0);
+
+        muValues.push_back(mu);
+        zValues.push_back(z_lrt);
+
+        if (i % 5 == 0 || i == nSteps - 1) {
+            std::cout << "[AnalyticalScan] mu = " << std::fixed << std::setprecision(1) << mu
+                      << ", Z_LRT = " << std::setprecision(2) << z_lrt << " σ\n";
+        }
+        delete dsData;
+    }
+
+    // 6. ПОИСК mu для 5 сигм (линейная интерполяция)
+    double mu_5sigma = -1.0;
+    for (size_t i = 0; i < muValues.size() - 1; ++i) {
+        if ((zValues[i] <= ANALYTICAL_SCAN_Z_TARGET &&
+             zValues[i + 1] >= ANALYTICAL_SCAN_Z_TARGET) ||
+            (zValues[i] >= ANALYTICAL_SCAN_Z_TARGET &&
+             zValues[i + 1] <= ANALYTICAL_SCAN_Z_TARGET)) {
+            double frac = (ANALYTICAL_SCAN_Z_TARGET - zValues[i]) / (zValues[i + 1] - zValues[i]);
+            mu_5sigma = muValues[i] + frac * (muValues[i + 1] - muValues[i]);
+            break;
+        }
+    }
+
+    std::cout << "\n[AnalyticalScan] ====================================================\n";
+    if (mu_5sigma > 0) {
+        std::cout << "[AnalyticalScan] НАЙДЕНО: mu_5sigma = " << std::fixed << std::setprecision(2)
+                  << mu_5sigma << " (для достижения 5 σ)\n";
+    } else {
+        std::cout << "[AnalyticalScan] Значимость 5 σ НЕ ДОСТИГНУТА в заданном диапазоне mu.\n";
+        std::cout << "[AnalyticalScan] Попробуйте увеличить ANALYTICAL_SCAN_MU_MAX.\n";
+    }
+    std::cout << "[AnalyticalScan] ====================================================\n";
+
+    // 7. Визуализация
+    TCanvas *cScan = new TCanvas("cAnalyticalMuScan", "Analytical Fit - Z vs mu", 900, 700);
+    cScan->SetLeftMargin(0.13);
+    cScan->SetRightMargin(0.05);
+    cScan->SetBottomMargin(0.12);
+    cScan->SetTopMargin(0.08);
+
+    TGraph *grZ = new TGraph(muValues.size(), muValues.data(), zValues.data());
+    grZ->SetTitle(";#mu;Z_{LRT} [#sigma]");
+    grZ->SetMarkerStyle(20);
+    grZ->SetMarkerSize(1.0);
+    grZ->SetLineColor(kBlue);
+    grZ->SetLineWidth(2);
+    grZ->GetYaxis()->SetRangeUser(
+        0.0, std::max(6.0, *std::max_element(zValues.begin(), zValues.end()) * 1.2));
+    grZ->Draw("APL");
+
+    // Линия целевой значимости (5 сигм)
+    TLine *lineZ5 = new TLine(ANALYTICAL_SCAN_MU_MIN, ANALYTICAL_SCAN_Z_TARGET,
+                              ANALYTICAL_SCAN_MU_MAX, ANALYTICAL_SCAN_Z_TARGET);
+    lineZ5->SetLineColor(kRed);
+    lineZ5->SetLineStyle(kDashed);
+    lineZ5->SetLineWidth(2);
+    lineZ5->Draw("SAME");
+
+    // Вертикальная линия на mu_5sigma
+    TLine *lineMu5 = nullptr;
+    if (mu_5sigma > 0 && mu_5sigma >= ANALYTICAL_SCAN_MU_MIN &&
+        mu_5sigma <= ANALYTICAL_SCAN_MU_MAX) {
+        lineMu5 = new TLine(mu_5sigma, 0.0, mu_5sigma, grZ->GetYaxis()->GetXmax());
+        lineMu5->SetLineColor(kGreen + 1);
+        lineMu5->SetLineStyle(kDashed);
+        lineMu5->SetLineWidth(2);
+        lineMu5->Draw("SAME");
+    }
+
+    TLegend *leg = new TLegend(0.6, 0.75, 0.98, 0.98);
+    leg->SetBorderSize(1);
+    leg->SetFillColor(0);
+    leg->SetTextSize(0.03);
+    leg->AddEntry(grZ, "Z_{LRT} vs #mu", "pl");
+    leg->AddEntry(lineZ5, "Target: 5 #sigma", "l");
+    if (lineMu5)
+        leg->AddEntry(lineMu5, Form("#mu_{5#sigma} = %.2f", mu_5sigma), "l");
+    leg->Draw();
+
+    std::string outPdf = (fs::path(outputPath) / "analytical_scan_z_vs_mu.pdf").string();
+    cScan->SaveAs(outPdf.c_str());
+    std::cout << "[AnalyticalScan] График сохранен: " << outPdf << "\n";
+
+    // Очистка
+    delete leg;
+    delete lineZ5;
+    if (lineMu5)
+        delete lineMu5;
+    delete grZ;
+    delete cScan;
+    delete dsSignalTemplate;
+    delete dsBkgTemplate;
+}
+
+// =============================================================================
 // ФУНКЦИЯ runMrecoilScanMu
 // =============================================================================
 //
@@ -2402,6 +2648,8 @@ void printUsage(const char *progName) {
         << "  -s, --scan-mu                Запустить сканирование по mu\n"
         << "  --template-fit               Выполнить шаблонный фит\n"
         << "  --analytical-fit             Выполнить аналитический фит (Gauss + Polynomial)\n"
+        << "  --analytical-scan-mu         Запустить сканирование mu для аналитического фита "
+           "(поиск 5 #sigma)\n"
         << "  -a, --scan-fit-params        Запустить сканирование параметров адаптивности и бинов\n"
         << "\nПример:\n"
         << "  " << progName
@@ -2425,6 +2673,7 @@ int main(int argc, char *argv[]) {
     std::string bdtModelPath = DEFAULT_BDT_MODEL_PATH;
     double bdtThreshold = DEFAULT_BDT_THRESHOLD;
     bool runScanMu = false;
+    bool runAnalyticalScanMu = false;
     bool runScanFitParams = false;
     bool runFit = false;
     bool runAnalyticalFit = false;
@@ -2447,6 +2696,8 @@ int main(int argc, char *argv[]) {
             runFit = true;
         } else if (arg == "--analytical-fit") {
             runAnalyticalFit = true;
+        } else if (arg == "--analytical-scan-mu") {
+            runAnalyticalScanMu = true;
         } else if (arg == "-s" || arg == "--scan-mu") {
             runScanMu = true;
         } else if (arg == "-a" || arg == "--scan-fit-params") {
@@ -3424,6 +3675,11 @@ int main(int argc, char *argv[]) {
     if (runScanMu) {
         runMrecoilScanMu(vMrecoil_Signal_Weighted, vMrecoil_Bkg_Weighted, vMrecoil_qqHX_Weighted,
                          fs::path(outputBaseDir).string());
+    }
+
+    if (runAnalyticalScanMu) {
+        runMrecoilAnalyticalScanMu(vMrecoil_Signal_Weighted, vMrecoil_Bkg_Weighted,
+                                   vMrecoil_qqHX_Weighted, fs::path(outputBaseDir).string());
     }
 
     // Очистка

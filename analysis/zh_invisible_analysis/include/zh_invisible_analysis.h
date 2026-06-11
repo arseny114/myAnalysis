@@ -476,11 +476,19 @@ const double SCAN_ADAPT_BGD_STEP = 0.25;
 const std::string FIT_OUTPUT_FILENAME = "template_fit_recoil.pdf";
 
 // =============================================================================
-// НАСТРОЙКИ АНАЛИТИЧЕСКОГО ФИТА Mrecoil (Гаусс + Полином)
+// НАСТРОЙКИ АНАЛИТИЧЕСКОГО ФИТА Mrecoil
 // =============================================================================
 const double ANALYTICAL_FIT_MRECOIL_MIN = 100.0;
 const double ANALYTICAL_FIT_MRECOIL_MAX = 155.0;
 const int ANALYTICAL_FIT_PLOT_BINS = 100;
-const double ANALYTICAL_FIT_PSEUDO_MU = 10.59;
+const double ANALYTICAL_FIT_PSEUDO_MU = 15.0;
+
+// =============================================================================
+// НАСТРОЙКИ СКАНИРОВАНИЯ MU ДЛЯ АНАЛИТИЧЕСКОГО ФИТА
+// =============================================================================
+const double ANALYTICAL_SCAN_MU_MIN = 0.0;
+const double ANALYTICAL_SCAN_MU_MAX = 20.0;
+const double ANALYTICAL_SCAN_MU_STEP = 1.0;
+const double ANALYTICAL_SCAN_Z_TARGET = 5.0;
 
 #endif // ZH_INVISIBLE_ANALYSIS_H
