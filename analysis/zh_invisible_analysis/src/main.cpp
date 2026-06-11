@@ -1679,6 +1679,72 @@ void runMrecoilAnalyticalFit(const std::vector<std::pair<double, double>> &vSign
               << ", NLL = " << nll_sb << "\n";
 
     // =========================================================================
+    // ШАГ 10b: ВАЛИДАЦИЯ: ФИТ С ЗАФИКСИРОВАННОЙ ФОРМОЙ ФОНА
+    // =========================================================================
+    // Цель: Проверить, что если форма фона (Чебышев) зафиксирована на "истинных"
+    // значениях из MC, а форма сигнала зафиксирована (RooKeysPdf), то свободные
+    // параметры нормировки (nS, nB) сойдутся к ожидаемым инжектированным значениям.
+    std::cout << "\n[AnalyticalFit] =====================================================\n";
+    std::cout << "[AnalyticalFit] ВАЛИДАЦИЯ: Фит с зафиксированной формой фона\n";
+
+    // 1. Фиксируем коэффициенты Чебышева к значениям, полученным из чистого фона (Шаг 4)
+    // Это наши истинные параметры формы фона.
+    c0.setVal(c0_init.getVal());
+    c1.setVal(c1_init.getVal());
+    c2.setVal(c2_init.getVal());
+    c3.setVal(c3_init.getVal());
+
+    c0.setConstant(kTRUE);
+    c1.setConstant(kTRUE);
+    c2.setConstant(kTRUE);
+    c3.setConstant(kTRUE);
+
+    // 2. Параметры числа событий (nS и nB) оставляем свободными,
+    // но задаем им хорошие начальные значения (ожидаемые)
+    nS.setVal(expectedNS);
+    nB.setVal(expectedNB);
+    nS.setConstant(kFALSE);
+    nB.setConstant(kFALSE);
+
+    // 3. Запускаем фит
+    RooFitResult *fitResFixed = model.fitTo(
+        *dsData, RooFit::Extended(kTRUE), RooFit::Range("fitRange"), RooFit::SumW2Error(kTRUE),
+        RooFit::Strategy(1), RooFit::Minimizer("Minuit2", "migrad"), RooFit::PrintLevel(1),
+        RooFit::Save(kTRUE));
+
+    if (!fitResFixed || fitResFixed->status() != 0) {
+        std::cerr << "[AnalyticalFit] Предупреждение: валидационный фит завершился со статусом "
+                  << (fitResFixed ? fitResFixed->status() : -1) << "\n";
+    }
+
+    double fit_nS_fixed = nS.getVal();
+    double fit_nS_fixed_err = nS.getError();
+    double fit_nB_fixed = nB.getVal();
+    double fit_nB_fixed_err = nB.getError();
+    double nll_fixed = fitResFixed ? fitResFixed->minNll() : 0.0;
+
+    std::cout << "[AnalyticalFit] -----------------------------------------------------\n";
+    std::cout << "[AnalyticalFit] Результаты фита с фиксированной формой:\n";
+    std::cout << "[AnalyticalFit]   nS (fitted)  = " << std::fixed << std::setprecision(2)
+              << fit_nS_fixed << " ± " << fit_nS_fixed_err << "  (ожидалось: " << expectedNS
+              << ")\n";
+    std::cout << "[AnalyticalFit]   nB (fitted)  = " << std::fixed << std::setprecision(2)
+              << fit_nB_fixed << " ± " << fit_nB_fixed_err << "  (ожидалось: " << expectedNB
+              << ")\n";
+    std::cout << "[AnalyticalFit]   NLL          = " << nll_fixed << "\n";
+    std::cout << "[AnalyticalFit] =====================================================\n\n";
+
+    // 4. Освобождаем параметры фона, чтобы не сломать последующую визуализацию (Шаг 12),
+    // которая ожидает, что параметры можно менять.
+    c0.setConstant(kFALSE);
+    c1.setConstant(kFALSE);
+    c2.setConstant(kFALSE);
+    c3.setConstant(kFALSE);
+
+    if (fitResFixed)
+        delete fitResFixed;
+
+    // =========================================================================
     // ШАГ 11: ОЦЕНКА ЗНАЧИМОСТИ
     // =========================================================================
     double q0 = 2.0 * (nll_b - nll_sb);
