@@ -51,8 +51,8 @@ df_balanced = pd.concat([sig_df, bkg_df], ignore_index=True)
 # ==============================================================================
 # 3. ПОДГОТОВКА ПРИЗНАКОВ (FEATURES)
 # ==============================================================================
-# Исключаем мета-данные и целевую переменную
-exclude_cols = ['process', 'is_signal', 'weight', 'scaled_weight']
+# Исключаем мета-данные, целевую переменную и met_pfo
+exclude_cols = ['process', 'is_signal', 'weight', 'scaled_weight', 'met_pfo']
 features = [col for col in df.columns if col not in exclude_cols]
 
 X = df_balanced[features].values

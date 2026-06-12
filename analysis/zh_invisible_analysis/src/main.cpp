@@ -3221,9 +3221,8 @@ int main(int argc, char *argv[]) {
                 features[8] = static_cast<float>(dijetEnergy);
                 features[9] = static_cast<float>(deltaTheta);
                 features[10] = static_cast<float>(deltaPhi);
-                features[11] = static_cast<float>(met_pfo);
-                features[12] = static_cast<float>(pmiss_mag);
-                features[13] = static_cast<float>(cosThetaPmiss);
+                features[11] = static_cast<float>(pmiss_mag);
+                features[12] = static_cast<float>(cosThetaPmiss);
 
                 // 2. Создаем временный DMatrix из массива float
                 // Аргументы: data, nrow, ncol, missing_value, &handle

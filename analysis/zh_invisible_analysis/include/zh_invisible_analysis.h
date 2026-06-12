@@ -90,8 +90,8 @@ const double DEFAULT_BDT_THRESHOLD = 0.8;
 
 // Порядок фичей должен строго совпадать с фичами в ../ml/train_bdt.py
 const std::vector<std::string> BDT_FEATURE_NAMES = {
-    "invMass", "cosThetaZ",   "deltaR",     "cosTheta1", "cosTheta2", "jet1_E",    "jet2_E",
-    "met_jet", "dijetEnergy", "deltaTheta", "deltaPhi",  "met_pfo",   "pmiss_mag", "cosThetaPmiss"};
+    "invMass", "cosThetaZ",   "deltaR",     "cosTheta1", "cosTheta2", "jet1_E",       "jet2_E",
+    "met_jet", "dijetEnergy", "deltaTheta", "deltaPhi",  "pmiss_mag", "cosThetaPmiss"};
 
 const size_t NUM_BDT_FEATURES = BDT_FEATURE_NAMES.size();
 
