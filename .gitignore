@@ -1,5 +1,9 @@
 build/
 pdf_results/
+pdf_results_nunuHX/
+pdf_results_4f_sznu_sl0nu_up/
 venv/
 ml_data.csv
 xgb_zh_invisible.json
+xgb_zh_nunuHX.json
+xgb_zh_4f_sznu_sl0nu_up.json
